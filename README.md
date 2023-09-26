@@ -35,4 +35,7 @@ To generate the slope and roughness maps, simply run **DEM_to_Slope_and_Roughnes
 
 ## :camera: Images
 **Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200m and a window size of 1000m**.
+
+<br>
+
 ![alt text](https://github.com/Joe-Phillips/DEM-to-Slope-and-Roughness/blob/main/REMA_Example_Figure.png?raw=true)
