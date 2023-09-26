@@ -1,6 +1,6 @@
 # DEM-to-Slope-and-Roughness
 
-...
+This project produces **slope** and **roughness** maps using **Digital Elevation Model** (DEM) data and **Singular Value Decomposition** (SVD).
 
 Made by Joe Phillips.
 
@@ -10,30 +10,29 @@ Made by Joe Phillips.
 
 ## :toolbox: How it Works
 
+Although there exist several sufficient and easy-to-apply methodologies for calculating slope from DEMs, commonly applied approaches for calculating roughness such as Terrain Ruggedness Index (TRI) and Topographic Position Index (TPI) contain several underlying issues, despite extensive application in GIS programs and packages such as GRASS, ArcGIS, and GDAL (used by QGIS). This is because these methods do not account for topographic slope when computing the variance in elevation, instead simply calculating the differences between a pixel and its immediate neighbours. This, for example, would return a non-zero roughness value over a monotonic surface set at an angle. As such, values attained for slope and roughness calculated this way encode each via complex, non-linear interactions.
+
+To amend this, we opt to calculate roughness independently of slope via the dispersion of orthogonal residuals from a plane fitted through a given DEM point and its neighbours. To do so, we use SVD, which we apply, likewise to the previous DEM-based methodologies, using a sliding-window approach.
+
+To obtain slope and roughness values, we first centre the data by subtracting the means of their x, y and z coordinates. By applying SVD, which decomposes the now-centred points in each window (described by a column of x,y, and z coordinates) into three distinct matrices (M = U \Sigma V^{T}), we can take the 3x3 left singular matrix which contains three orthogonal unit vectors describing a plane of best fit. By calculating the partial derivatives $\frac{dz}{dx}$ and $\frac{dz}{dy}$, we can then determine the resulting gradient, and hence the surface slope in degrees. Roughness is then directly computed based on the standard deviation of the orthogonal residuals, which are calculated by taking the dot product of the points with the normal vector to the plane.
+
+## 🛠️: How to Use
+
 First, make sure you have installed the required packages. This can be done via **pip install -r requirements.txt**.
 
-To generate a plot, simply run **SAR_Altimetry_Plotter.py** from the command line with the following arguments:
+To generate the slope and roughness maps, simply run **DEM_to_Slope_and_Roughness.py** from the command line with the following arguments:
 
-- **SAT** (string): *The satellite (S3 or CS2).*
-- **RANGE** (tuple): *A tuple containing the range of records to plot (start_record, end_record).*
-- **DEM_PATH** (string): *The path to the DEM file. Ideally, the DEM should have resolution below the size of the satellite footprint along-track.*
-- **L2_PATH** (string): *The path to the Level-2 track data.*
-- --**L1_PATH** (string, optional): *The path to the Level-1 track data. Required for Cryosat-2.*
-- --**DEM_PROJ** (string, optional): *The projection of the DEM data in EPSG format (default is EPSG:3031). This should be in meters.*
-
-This produces an interactive HTML file, which can be opened and viewed in a browser.
+- **DEM_PATH** (string): *The path to the DEM file.*
+- **DEM_RES** (string): *The resolution of the DEM in meters.*
+- **WINDOW_SIZE** (int): *The size of the window around each pixel in meters over which slope and roughness will be calculated.*
+- **NUM_TILES** (int): *The number of tiles to split the DEM into during processing to minimise memory usage. This will depend on the size of the DEM and the amount of available memory.*
 
 ### Example:
 
-- python SAR_Altimetry_Plotter.py CS2 (1000,1250) example_folder/DEM.tif example_folder/L2_track.nc --L1_PATH example_folder/L1_track.nc --DEM_PROJ EPSG:3031
+- python DEM_to_Slope_and_Roughness.py example_folder/DEM.tif 200 1000 400
 
 <br>
 
-## :camera: Images 
-**Sentinel-3**
-![alt text](https://github.com/Joe-Phillips/SAR-Altimetry-Plotter/blob/main/S3_Example_Figure.png?raw=true)
-
-<br>
-
-**Cryosat-2**
-![alt text](https://github.com/Joe-Phillips/SAR-Altimetry-Plotter/blob/main/CS2_Example_Figure.png?raw=true)
+## :camera: Images
+**Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200m and a window size of 1000m**.
+![alt text](https://github.com/Joe-Phillips/SAR-Altimetry-Plotter/blob/main/REMA_Example_Figure.png?raw=true)
