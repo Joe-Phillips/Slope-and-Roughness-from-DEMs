@@ -17,7 +17,7 @@ os.chdir(pathlib.Path(__file__).parent.resolve())
 # Functions
 # ----------------------------------------------------------------------
 
-def DEM_to_Slope_and_Roughness(DEM_PATH, RESOLUTION, WINDOW_SIZE, NUM_TILES):
+def generate_Slope_and_Roughness(DEM_PATH, RESOLUTION, WINDOW_SIZE, NUM_TILES):
     """
     Calculate slope and roughness from a Digital Elevation Model (DEM).
 
@@ -274,7 +274,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Call the function with the provided command-line arguments
-DEM_to_Slope_and_Roughness(
+generate_Slope_and_Roughness(
     args.DEM_PATH,
     args.DEM_RES,
     args.WINDOW_SIZE,
