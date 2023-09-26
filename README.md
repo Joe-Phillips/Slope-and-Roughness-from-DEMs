@@ -16,7 +16,7 @@ To amend this, we opt to calculate roughness independently of slope via the disp
 
 To obtain slope and roughness values, we first centre the data by subtracting the means of their x, y and z coordinates. By applying SVD, which decomposes the now-centred points in each window (described by a column of x,y, and z coordinates) into three distinct matrices (M = U \Sigma V^{T}), we can take the 3x3 left singular matrix which contains three orthogonal unit vectors describing a plane of best fit. By calculating the partial derivatives $\frac{dz}{dx}$ and $\frac{dz}{dy}$, we can then determine the resulting gradient, and hence the surface slope in degrees. Roughness is then directly computed based on the standard deviation of the orthogonal residuals, which are calculated by taking the dot product of the points with the normal vector to the plane.
 
-## 🛠️: How to Use
+## 🛠️: Usage Guide
 
 First, make sure you have installed the required packages. This can be done via **pip install -r requirements.txt**.
 
