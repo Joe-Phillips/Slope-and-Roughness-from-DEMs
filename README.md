@@ -29,7 +29,7 @@ To generate the slope and roughness maps, simply run **generate_Slope_and_Roughn
 
 ### Example:
 
-- python DEM_to_Slope_and_Roughness.py example_folder/DEM.tif 200 1000 400
+- python generate_Slope_and_Roughness.py example_folder/DEM.tif 200 1000 400
 
 <br>
 
