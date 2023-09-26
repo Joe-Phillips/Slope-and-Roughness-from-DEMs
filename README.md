@@ -20,7 +20,7 @@ To obtain slope and roughness values, we first centre the data by subtracting th
 
 First, make sure you have installed the required packages. This can be done via **pip install -r requirements.txt**.
 
-To generate the slope and roughness maps, simply run **DEM_to_Slope_and_Roughness.py** from the command line with the following arguments:
+To generate the slope and roughness maps, simply run **generate_Slope_and_Roughness.py** from the command line with the following arguments:
 
 - **DEM_PATH** (string): *The path to the DEM file.*
 - **DEM_RES** (string): *The resolution of the DEM in meters.*
