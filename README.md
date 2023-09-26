@@ -1,4 +1,4 @@
-# DEM-to-Slope-and-Roughness
+# Slope-and-Roughness-from-DEMs
 
 This project produces **slope** and **roughness** maps using **Digital Elevation Model** (DEM) data and **Singular Value Decomposition** (SVD).
 
