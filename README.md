@@ -42,4 +42,4 @@ To generate the slope and roughness maps, simply run **dem_to_slope_and_roughnes
 
 <br>
 
-![alt text](https://github.com/Joe-Phillips/DEM-to-Slope-and-Roughness/blob/main/REMA_Example_Figure.png?raw=true)
+![alt text](https://github.com/Joe-Phillips/DEM-to-Slope-and-Roughness/blob/main/example_output.png?raw=true)
