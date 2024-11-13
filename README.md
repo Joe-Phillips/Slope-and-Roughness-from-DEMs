@@ -19,10 +19,12 @@ Despite these limitations, these approaches are extensively used in GIS software
 Here, we calculate slope more accurately by fitting a plane through a given DEM point and its neighbors using Singular Value Decomposition (SVD). Roughness is computed independently of slope by assessing the dispersion of orthogonal residuals from this fitted plane. Unlike traditional methods, our approach enables a sliding-window application that is not restricted to a 3x3 window; instead, it can accommodate a larger area (e.g., a 9x9 pixel window), incorporating more data points to produce smoother, more reliable slope and roughness estimates.
 
 Specifically, for a pixel and its surrounding neighbors, the data is first centered by subtracting the mean of the x, y, and z coordinates. Applying SVD to the centered points in each window (organized as columns of x, y, and z coordinates) decomposes them into three distinct matrices:
-M=UΣVT
-M=UΣVT
 
-From these, the 3×33×3 left singular matrix UU contains three orthogonal unit vectors that describe the best-fit plane. By calculating the partial derivatives dzdxdxdz​ and dzdydydz​, we determine the resulting gradient and thus the surface slope in degrees. Roughness is then computed directly from the variation in orthogonal residuals, which are obtained by taking the dot product of the centered points with the normal vector to the plane. The roughness can currently be quantified using (1) standard deviation, (2) median absolute deviation, or (3) peak-to-peak distance of the residuals.
+$$
+M = U \Sigma V^{T}
+$$
+
+From these, the \(3 \times 3\) left singular matrix \(U\) contains three orthogonal unit vectors that describe the best-fit plane. By calculating the partial derivatives \(\frac{dz}{dx}\) and \(\frac{dz}{dy}\), we determine the resulting gradient and thus the surface slope in degrees. Roughness is then computed directly from the variation in orthogonal residuals, which are obtained by taking the dot product of the centered points with the normal vector to the plane. The roughness can currently be quantified using: (1) standard deviation, (2) median absolute deviation, or (3) peak-to-peak distance of the residuals.
 
 ## 🛠️ Usage Guide
 
