@@ -24,7 +24,7 @@ $$
 M = U \Sigma V^{T}
 $$
 
-From these, the 3x3 left singular matrix **U** contains three orthogonal unit vectors that describe the best-fit plane. By calculating the partial derivatives \( \frac{dz}{dx} \) and \( \frac{dz}{dy} \), we determine the resulting gradient and thus the surface slope in degrees. Roughness is then computed directly from the variation in orthogonal residuals, which are obtained by taking the dot product of the centered points with the normal vector to the plane. The roughness can currently be quantified using (1) standard deviation, (2) median absolute deviation, or (3) peak-to-peak distance of the residuals.
+From these, the 3x3 left singular matrix **U** contains three orthogonal unit vectors that describe the best-fit plane. By calculating the partial derivatives $\( \frac{dz}{dx} \)$ and $\( \frac{dz}{dy} \)$, we determine the resulting gradient and thus the surface slope in degrees. Roughness is then computed directly from the variation in orthogonal residuals, which are obtained by taking the dot product of the centered points with the normal vector to the plane. The roughness can currently be quantified using the (1) standard deviation, (2) median absolute deviation, or (3) peak-to-peak distance of the residuals.
 
 ## 🛠️ Usage Guide
 
