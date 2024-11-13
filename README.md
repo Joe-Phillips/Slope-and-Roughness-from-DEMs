@@ -10,31 +10,35 @@ Made by Joe Phillips.
 
 ## :toolbox: How it Works
 
-Although there exist several sufficient and easy-to-apply methodologies for calculating slope from DEMs, commonly applied approaches for calculating roughness such as Terrain Ruggedness Index (TRI) and Topographic Position Index (TPI) contain several underlying issues, despite extensive application in GIS programs and packages such as GRASS, ArcGIS, and GDAL (used by QGIS). This is because these methods do not account for topographic slope when computing the variance in elevation, instead simply calculating the differences between a pixel and its immediate neighbours. This, for example, would return a non-zero roughness value over a monotonic surface set at an angle. As such, values attained for slope and roughness calculated this way encode each via complex, non-linear interactions.
+Commonly applied slope algorithms, such as Horn's method, estimate slope using local elevation differences across a small, fixed window (3x3). By approximating partial derivatives across immediate neighbours, these methods tend to be sensitive to noise and elevation variability, often resulting in exaggerated slope values in areas with highly variable or noisy data.
 
-Here, we instead calculate roughness independently of slope via the dispersion of orthogonal residuals from a plane fitted through a given DEM point and its neighbours. To do so, we use SVD, which we apply using a sliding-window approach.
+Similarly, widely used roughness methods such as Terrain Ruggedness Index (TRI) and Topographic Position Index (TPI) fail to account for topographic slope when evaluating elevation variance. Instead, they calculate differences between a pixel and its immediate neighbors, yielding non-zero roughness values for a monotonic surface set at an angle. Consequently, the roughness values produced by these methods encode slope through complex, non-linear interactions.
 
-To obtain slope and roughness values, we first centre the data by subtracting the means of their x, y and z coordinates. By applying SVD, which decomposes the now-centred points in each window (described by a column of x,y, and z coordinates) into three distinct matrices ($M = U \Sigma V^{T}$), we can take the 3x3 left singular matrix which contains three orthogonal unit vectors describing a plane of best fit. By calculating the partial derivatives $\frac{dz}{dx}$ and $\frac{dz}{dy}$, we can then determine the resulting gradient, and hence the surface slope in degrees. Roughness is then directly computed based on the standard deviation of the orthogonal residuals, which are calculated by taking the dot product of the points with the normal vector to the plane.
+Despite these limitations, these approaches are extensively used in GIS software like GRASS, ArcGIS, and GDAL (the backend for QGIS).
+
+Here, we calculate slope more accurately by fitting a plane through a given DEM point and its neighbors using Singular Value Decomposition (SVD). Roughness is computed independently of slope by assessing the dispersion of orthogonal residuals from this fitted plane. Unlike traditional methods, our approach enables a sliding-window application that is not restricted to a 3x3 window; instead, it can accommodate a larger area (e.g., a 9x9 pixel window), incorporating more data points to produce smoother, more reliable slope and roughness estimates.
+
+Specifically, for pixel and its surrounding neighbours, the data is first centered by subtracting the mean of the x, y, and z coordinates. Applying SVD to the centered points in each window (organized as columns of x, y, and z coordinates) decomposes them into three distinct matrices (M=UΣVT)(M = U \Sigma V^{T})(M=UΣVT). From these, the 3x3 left singular matrix UUU contains three orthogonal unit vectors that describe the best-fit plane. By calculating the partial derivatives dzdx\frac{dz}{dx}dxdz​ and dzdy\frac{dz}{dy}dydz​, we determine the resulting gradient and thus the surface slope in degrees. Roughness is then computed directly from the variation in orthogonal residuals, which are obtained by taking the dot product of the centered points with the normal vector to the plane. The roughness can currently be quantified using (1) standard deviation, (2) median absolute deviation, or (3) peak-to-peak distance of the residuals.
 
 ## 🛠️ Usage Guide
 
 First, make sure you have installed the required packages. This can be done via **pip install -r requirements.txt**.
 
-To generate the slope and roughness maps, simply run **generate_Slope_and_Roughness.py** from the command line with the following arguments:
+To generate the slope and roughness maps, simply run **dem_to_slope_and_roughness.py** from the command line with the following arguments:
 
 - **DEM_PATH** (string): *The path to the DEM file.*
-- **DEM_RES** (string): *The resolution of the DEM in meters.*
+- **DEM_RESOLUTION** (string): *The resolution of the DEM in meters.*
 - **WINDOW_SIZE** (int): *The size of the window around each pixel in meters over which slope and roughness will be calculated.*
-- **NUM_TILES** (int): *The number of tiles to split the DEM into during processing to minimise memory usage. This will depend on the size of the DEM and the amount of available memory.*
+- **ROUGHNESS_METHOD** (int): *The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2p' (peak-to-peak). Defaults to 'std'.*
 
 ### Example:
 
-- python generate_Slope_and_Roughness.py example_folder/DEM.tif 200 1000 400
+- python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 std
 
 <br>
 
 ## :camera: Images
-**Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200m and a window size of 1000m**. *(Plot created separately).*
+**Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200 m and a window size of 1000 m**. *(Plot created separately).*
 
 <br>
 
