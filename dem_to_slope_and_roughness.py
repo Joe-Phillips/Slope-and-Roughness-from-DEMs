@@ -93,6 +93,9 @@ def uniform_chunk_2d(data, overlap, desired_num_chunks):
 
     # Get number of chunks to evenly split data into
     possible_num_chunks = get_factors(num_rows)  # get possible candidates
+    possible_num_chunks = possible_num_chunks[
+        possible_num_chunks - desired_num_chunks >= 0
+    ]  # filter out num_chunks lower than desired
     num_chunks = possible_num_chunks[
         np.argmin(np.absolute(possible_num_chunks - desired_num_chunks))
     ]  # get closest candidate that evenly divides the data
@@ -314,20 +317,48 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     # Read in DEM
     print("Reading in DEM...")
     dem = read_raster(dem_path)
-    _, num_cols = np.shape(dem)
+    num_rows, num_cols = np.shape(dem)
+
+    # Get available memory
+    print("Chunking DEM to reduce memory overhead...")
+    available_memory = virtual_memory().available
+    available_memory = available_memory / (1024**3)
+
+    # Confirm how much memory to use
+    while True:
+        choice = input(
+            f"Available memory {available_memory:.2f} Gb. Do you want to use all available [0] or specify [1]? "
+        )
+
+        if choice == "0":
+            available_memory *= 0.9  # apply buffer
+            print(f"Using {available_memory:.2f} Gb...")
+            break
+        elif choice == "1":
+            try:
+                specified_memory = float(input("Please specify memory to use in Gb: "))
+                if 0 < specified_memory <= available_memory:
+                    available_memory = specified_memory
+                    print(f"Using {available_memory:.2f} Gb...")
+                    break
+                else:
+                    print(
+                        f"Please enter a value between 0 and {available_memory:.2f} Gb."
+                    )
+            except ValueError:
+                print("Invalid input. Please enter a numeric value.")
+        else:
+            print("Invalid input. Please enter 0 or 1.")
 
     # Split up DEM into manageable chunks with overlap
-    print("Chunking DEM to reduce memory overhead...")
-    available_memory = virtual_memory().available  # Get available memory
-    available_memory = (available_memory * 0.9) / (1024**2)  # buffer and convert to mb
-    approx_total_memory_needed = (num_cols * num_cols * (window_size_pixels**2) * 2) / (
-        1024**2
-    )  # *very* rough approx
+    overlap = window_size_pixels // 2  # overlap half the size of the windows
+    approx_total_memory_needed = (num_cols * num_rows * (window_size_pixels**2) * 4) / (
+        1024**3
+    )  # *very* rough approx (float32 = 4 bytes)
     desired_num_chunks = (
         approx_total_memory_needed / available_memory
     )  # desired number of chunks
-    overlap = window_size_pixels // 2  # overlap half the size of the windows
-    dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)  # # chunk the data
+    dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)  # chunk DEM
     num_chunks = len(dem)
     chunked_dem_shape = np.shape(dem)
 
