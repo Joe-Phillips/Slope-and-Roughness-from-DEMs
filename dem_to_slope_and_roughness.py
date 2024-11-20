@@ -272,7 +272,6 @@ def save_raster(dem_path, output, output_path, output_description):
         dest_file.update_tags(description=description)  # add the description as a tag
         dest_file.write(output)
 
-
 def manage_memory(num_rows, num_cols, window_size_pixels):
     """
     Manage memory allocation for DEM processing.
@@ -283,69 +282,62 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
         window_size_pixels (int): Window size in pixels for processing.
 
     Returns:
-        tuple: (dem_chunks, overlap, desired_num_chunks)
+        tuple: (overlap, desired_num_chunks)
     """
+    def get_user_memory_choice(full_memory, min_memory_needed):
+        """Prompt user to select or specify memory usage, re-prompt if insufficient."""
+        while True:
+            choice = input(
+                f"Available memory {full_memory:.2f} Gb. Use all [0] or specify [1]? "
+            )
+            if choice == "0":
+                return full_memory * 0.9  # Use 90% of full available memory
+            elif choice == "1":
+                try:
+                    specified_memory = float(input("Specify memory to use (Gb): "))
+                    if 0 < specified_memory <= full_memory:
+                        if specified_memory >= min_memory_needed:
+                            return specified_memory
+                        else:
+                            print(
+                                f"Specified memory ({specified_memory:.2f} Gb) is insufficient. "
+                                f"At least {min_memory_needed:.2f} Gb is required."
+                            )
+                    else:
+                        print(f"Enter a value between 0 and {full_memory:.2f} Gb.")
+                except ValueError:
+                    print("Invalid input. Please enter a numeric value.")
+            else:
+                print("Invalid choice. Enter 0 or 1.")
+
     # Get available memory
-    available_memory = virtual_memory().available / (1024**3)
+    full_memory = virtual_memory().available / (1024**3)
     print("Chunking DEM to reduce memory overhead...")
 
-    # Confirm memory allocation
-    while True:
-        choice = input(
-            f"Available memory {available_memory:.2f} Gb. Do you want to use all available [0] or specify [1]? "
-        )
+    # Memory calculations
+    mem_per_pixel = 4  # float32 = 4 bytes
+    approx_mem_chunks = (
+        num_cols * num_rows * mem_per_pixel * window_size_pixels**2
+    ) / (1024**3)
+    approx_mem_rest = (3 * num_cols * num_rows * mem_per_pixel) / (1024**3)
+    min_chunk_size_mem = (window_size_pixels * num_rows * 4)/(1024**3)
+    min_memory_needed = (approx_mem_rest + min_chunk_size_mem)*1.05 # add buffer for smaller memory requirements
 
-        if choice == "0":
-            available_memory *= 0.9  # Apply buffer
-            print(f"Using {available_memory:.2f} Gb...")
-            break
-        elif choice == "1":
-            try:
-                specified_memory = float(input("Please specify memory to use in Gb: "))
-                if 0 < specified_memory <= available_memory:
-                    available_memory = specified_memory
-                    print(f"Using {available_memory:.2f} Gb...")
-                    break
-                else:
-                    print(
-                        f"Please enter a value between 0 and {available_memory:.2f} Gb."
-                    )
-            except ValueError:
-                print("Invalid input. Please enter a numeric value.")
-        else:
-            print("Invalid input. Please enter 0 or 1.")
-
-    # Calculate memory requirements
-    approx_total_memory_needed_chunk = (
-        (num_cols * num_rows * 4 * (window_size_pixels) ** 2)
-    ) / (
-        1024**3
-    )  # Main memory sink (float32 = 4 bytes)
-    approx_total_memory_needed_rest = ((3 * num_cols * num_rows * 4)) / (
-        1024**3
-    )  # Other large arrays
-
-    # Check if memory is sufficient
-    if available_memory <= approx_total_memory_needed_rest:
+    # Check if full memory is sufficient
+    if full_memory < min_memory_needed:
         sys.exit(
-            f"Available memory ({available_memory:.2f} Gb) is insufficient. "
-            f"At least {approx_total_memory_needed_rest:.2f} Gb is required for reading in the DEM and storing slope/roughness. "
-            f"Exiting..."
+            f"Insufficient total system memory ({full_memory:.2f} Gb). "
+            f"At least {min_memory_needed:.2f} Gb is required. Exiting..."
         )
 
-    memory_for_chunks = available_memory - approx_total_memory_needed_rest
-    if memory_for_chunks <= 0:
-        sys.exit(
-            f"Not enough memory remaining for chunking DEM. "
-            f"Required: {approx_total_memory_needed_chunk:.2f} Gb; Available: {memory_for_chunks:.2f} Gb. "
-            f"Exiting..."
-        )
+    # Get available memory from user
+    available_memory = get_user_memory_choice(full_memory, min_memory_needed)
 
-    # Calculate desired number of chunks
-    desired_num_chunks = approx_total_memory_needed_chunk / memory_for_chunks
+    # Get desired number of chunks based on memory available
+    desired_num_chunks = approx_mem_chunks / memory_for_chunks
 
-    # Return overlap and desired chunks
     overlap = window_size_pixels // 2
+    print(f"Chunking DEM with {desired_num_chunks:.0f} chunks and overlap {overlap} pixels.")
     return overlap, desired_num_chunks
 
 
