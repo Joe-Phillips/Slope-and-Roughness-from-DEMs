@@ -338,6 +338,7 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
     available_memory = get_user_memory_choice(full_memory, min_memory_needed)
 
     # Get desired number of chunks based on memory available
+    memory_for_chunks = available_memory - approx_mem_rest
     desired_num_chunks = approx_mem_chunks / memory_for_chunks
 
     overlap = window_size_pixels // 2
