@@ -329,7 +329,7 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
     if available_memory <= approx_total_memory_needed_rest:
         sys.exit(
             f"Available memory ({available_memory:.2f} Gb) is insufficient. "
-            f"At least {approx_total_memory_needed_rest:.2f} Gb is required for reading in the DEM and storing slope/roughness."
+            f"At least {approx_total_memory_needed_rest:.2f} Gb is required for reading in the DEM and storing slope/roughness. "
             f"Exiting..."
         )
 
@@ -337,7 +337,7 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
     if memory_for_chunks <= 0:
         sys.exit(
             f"Not enough memory remaining for chunking DEM. "
-            f"Required: {approx_total_memory_needed_chunk:.2f} Gb; Available: {memory_for_chunks:.2f} Gb."
+            f"Required: {approx_total_memory_needed_chunk:.2f} Gb; Available: {memory_for_chunks:.2f} Gb. "
             f"Exiting..."
         )
 
