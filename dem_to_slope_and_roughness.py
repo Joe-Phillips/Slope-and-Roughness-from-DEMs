@@ -95,7 +95,7 @@ def uniform_chunk_2d(data, overlap, desired_num_chunks):
     possible_num_chunks = get_factors(num_rows)  # get possible candidates
     possible_num_chunks = possible_num_chunks[
         possible_num_chunks - desired_num_chunks >= 0
-    ]  # filter out num_chunks lower than desired
+    ]  # filter out num_chunks lower than desired1
     num_chunks = possible_num_chunks[
         np.argmin(np.absolute(possible_num_chunks - desired_num_chunks))
     ]  # get closest candidate that evenly divides the data
@@ -273,6 +273,82 @@ def save_raster(dem_path, output, output_path, output_description):
         dest_file.write(output)
 
 
+def manage_memory(num_rows, num_cols, window_size_pixels):
+    """
+    Manage memory allocation for DEM processing.
+
+    Args:
+        num_rows (int): Number of rows in the DEM.
+        num_cols (int): Number of columns in the DEM.
+        window_size_pixels (int): Window size in pixels for processing.
+
+    Returns:
+        tuple: (dem_chunks, overlap, desired_num_chunks)
+    """
+    # Get available memory
+    available_memory = virtual_memory().available / (1024**3)
+    print("Chunking DEM to reduce memory overhead...")
+
+    # Confirm memory allocation
+    while True:
+        choice = input(
+            f"Available memory {available_memory:.2f} Gb. Do you want to use all available [0] or specify [1]? "
+        )
+
+        if choice == "0":
+            available_memory *= 0.9  # Apply buffer
+            print(f"Using {available_memory:.2f} Gb...")
+            break
+        elif choice == "1":
+            try:
+                specified_memory = float(input("Please specify memory to use in Gb: "))
+                if 0 < specified_memory <= available_memory:
+                    available_memory = specified_memory
+                    print(f"Using {available_memory:.2f} Gb...")
+                    break
+                else:
+                    print(
+                        f"Please enter a value between 0 and {available_memory:.2f} Gb."
+                    )
+            except ValueError:
+                print("Invalid input. Please enter a numeric value.")
+        else:
+            print("Invalid input. Please enter 0 or 1.")
+
+    # Calculate memory requirements
+    approx_total_memory_needed_chunk = (
+        (num_cols * num_rows * 4 * (window_size_pixels) ** 2)
+    ) / (
+        1024**3
+    )  # Main memory sink (float32 = 4 bytes)
+    approx_total_memory_needed_rest = ((3 * num_cols * num_rows * 4)) / (
+        1024**3
+    )  # Other large arrays
+
+    # Check if memory is sufficient
+    if available_memory <= approx_total_memory_needed_rest:
+        sys.exit(
+            f"Available memory ({available_memory:.2f} Gb) is insufficient. "
+            f"At least {approx_total_memory_needed_rest:.2f} Gb is required for reading in the DEM and storing slope/roughness."
+            f"Exiting..."
+        )
+
+    memory_for_chunks = available_memory - approx_total_memory_needed_rest
+    if memory_for_chunks <= 0:
+        sys.exit(
+            f"Not enough memory remaining for chunking DEM. "
+            f"Required: {approx_total_memory_needed_chunk:.2f} Gb; Available: {memory_for_chunks:.2f} Gb."
+            f"Exiting..."
+        )
+
+    # Calculate desired number of chunks
+    desired_num_chunks = approx_total_memory_needed_chunk / memory_for_chunks
+
+    # Return overlap and desired chunks
+    overlap = window_size_pixels // 2
+    return overlap, desired_num_chunks
+
+
 def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method):
     """
     Takes a DEM raster file, divides it into chunks with
@@ -319,46 +395,11 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     dem = read_raster(dem_path)
     num_rows, num_cols = np.shape(dem)
 
-    # Get available memory
-    print("Chunking DEM to reduce memory overhead...")
-    available_memory = virtual_memory().available
-    available_memory = available_memory / (1024**3)
+    # Memory management
+    overlap, desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
 
-    # Confirm how much memory to use
-    while True:
-        choice = input(
-            f"Available memory {available_memory:.2f} Gb. Do you want to use all available [0] or specify [1]? "
-        )
-
-        if choice == "0":
-            available_memory *= 0.9  # apply buffer
-            print(f"Using {available_memory:.2f} Gb...")
-            break
-        elif choice == "1":
-            try:
-                specified_memory = float(input("Please specify memory to use in Gb: "))
-                if 0 < specified_memory <= available_memory:
-                    available_memory = specified_memory
-                    print(f"Using {available_memory:.2f} Gb...")
-                    break
-                else:
-                    print(
-                        f"Please enter a value between 0 and {available_memory:.2f} Gb."
-                    )
-            except ValueError:
-                print("Invalid input. Please enter a numeric value.")
-        else:
-            print("Invalid input. Please enter 0 or 1.")
-
-    # Split up DEM into manageable chunks with overlap
-    overlap = window_size_pixels // 2  # overlap half the size of the windows
-    approx_total_memory_needed = (num_cols * num_rows * (window_size_pixels**2) * 4) / (
-        1024**3
-    )  # *very* rough approx (float32 = 4 bytes)
-    desired_num_chunks = (
-        approx_total_memory_needed / available_memory
-    )  # desired number of chunks
-    dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)  # chunk DEM
+    # Chunk DEM
+    dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)
     num_chunks = len(dem)
     chunked_dem_shape = np.shape(dem)
 
@@ -427,7 +468,9 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
 
         else:
             sys.exit(f"{roughness_method} not a valid roughness method. Exiting...")
+        import os, psutil
 
+        print(psutil.Process(os.getpid()).memory_info().rss / 1024**3)
     # Combine chunks
     slope_output = np.array([np.concatenate(slope_output, axis=0)])
     roughness_output = np.array([np.concatenate(roughness_output, axis=0)])
