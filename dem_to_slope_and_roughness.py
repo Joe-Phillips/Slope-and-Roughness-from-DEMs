@@ -467,9 +467,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
 
         else:
             sys.exit(f"{roughness_method} not a valid roughness method. Exiting...")
-        import os, psutil
 
-        print(psutil.Process(os.getpid()).memory_info().rss / 1024**3)
     # Combine chunks
     slope_output = np.array([np.concatenate(slope_output, axis=0)])
     roughness_output = np.array([np.concatenate(roughness_output, axis=0)])
