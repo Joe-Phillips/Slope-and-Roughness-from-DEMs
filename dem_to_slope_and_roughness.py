@@ -272,6 +272,7 @@ def save_raster(dem_path, output, output_path, output_description):
         dest_file.update_tags(description=description)  # add the description as a tag
         dest_file.write(output)
 
+
 def manage_memory(num_rows, num_cols, window_size_pixels):
     """
     Manage memory allocation for DEM processing.
@@ -284,6 +285,7 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
     Returns:
         tuple: (overlap, desired_num_chunks)
     """
+
     def get_user_memory_choice(full_memory, min_memory_needed):
         """Prompt user to select or specify memory usage, re-prompt if insufficient."""
         while True:
@@ -320,8 +322,10 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
         num_cols * num_rows * mem_per_pixel * window_size_pixels**2
     ) / (1024**3)
     approx_mem_rest = (3 * num_cols * num_rows * mem_per_pixel) / (1024**3)
-    min_chunk_size_mem = (window_size_pixels * num_rows * 4)/(1024**3)
-    min_memory_needed = (approx_mem_rest + min_chunk_size_mem)*1.05 # add buffer for smaller memory requirements
+    min_chunk_size_mem = (window_size_pixels * num_rows * 4) / (1024**3)
+    min_memory_needed = (
+        approx_mem_rest + min_chunk_size_mem
+    ) * 1.05  # add buffer for smaller memory requirements
 
     # Check if full memory is sufficient
     if full_memory < min_memory_needed:
@@ -337,7 +341,9 @@ def manage_memory(num_rows, num_cols, window_size_pixels):
     desired_num_chunks = approx_mem_chunks / memory_for_chunks
 
     overlap = window_size_pixels // 2
-    print(f"Chunking DEM with {desired_num_chunks:.0f} chunks and overlap {overlap} pixels.")
+    print(
+        f"Chunking DEM with {desired_num_chunks:.0f} chunks and overlap {overlap} pixels."
+    )
     return overlap, desired_num_chunks
 
 
