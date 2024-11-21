@@ -133,7 +133,7 @@ def window_2d(data, window_size_pixels, center_values=True, nan_threshold=0.5):
     """
     # Obtain windows at each point - results in 4d array
     windows = sliding_window_view(data, (window_size_pixels, window_size_pixels))
-    windows = windows.copy() # read-only hotfix
+    windows = windows.copy()  # read-only hotfix
 
     # Set windows to nan that have more than nan_threshold% nans (~arbritrary)
     insufficient_windows = (
@@ -341,9 +341,9 @@ def manage_memory(dem_rows, dem_cols, window_size):
         min_chunk_pixels * window_size**2 * bytes_per_pixel / (1024**3)
     )  # Smallest possible chunk in memory
     intermediate_memory_gb = (
-        (min_chunk_pixels * 9 * bytes_per_pixel) +  # U and residuals
-        (min_chunk_pixels * 2 * window_size * bytes_per_pixel) +  # Residual arrays
-        (3 * min_chunk_pixels * bytes_per_pixel)  # Gradient arrays
+        (min_chunk_pixels * 9 * bytes_per_pixel)  # U and residuals
+        + (min_chunk_pixels * 2 * window_size * bytes_per_pixel)  # Residual arrays
+        + (3 * min_chunk_pixels * bytes_per_pixel)  # Gradient arrays
     ) / (1024**3)
 
     total_min_memory_gb = (
@@ -361,7 +361,9 @@ def manage_memory(dem_rows, dem_cols, window_size):
         )
 
     # Prompt the user for memory allocation
-    allocated_memory_gb = prompt_user_memory_choice(total_memory_gb, total_min_memory_gb)
+    allocated_memory_gb = prompt_user_memory_choice(
+        total_memory_gb, total_min_memory_gb
+    )
 
     # Calculate number of chunks based on available memory
     available_memory_for_chunks_gb = allocated_memory_gb - io_array_memory_gb
@@ -418,7 +420,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     num_rows, num_cols = np.shape(dem)
 
     # Memory management
-    overlap = window_size_pixels//2
+    overlap = window_size_pixels // 2
     desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
 
     # Chunk DEM
@@ -434,7 +436,8 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
             chunked_dem_shape[1] - overlap * 2,
             chunked_dem_shape[2] - overlap * 2,
         ),
-        np.nan, dtype=np.float32
+        np.nan,
+        dtype=np.float32,
     )
     roughness_output = np.full(np.shape(slope_output), np.nan, dtype=np.float32)
     start_time = time.time()  # set start time
@@ -449,9 +452,15 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         windowed_chunk_shape = np.shape(windowed_chunk)
 
         # Initialise orthogonal vectors (U) and residual vectors
-        U = np.full((windowed_chunk_shape[0], windowed_chunk_shape[1], 3, 3), np.nan, dtype=np.float32)
+        U = np.full(
+            (windowed_chunk_shape[0], windowed_chunk_shape[1], 3, 3),
+            np.nan,
+            dtype=np.float32,
+        )
         residuals = np.full(
-            (windowed_chunk_shape[0], windowed_chunk_shape[1], window_size_pixels**2), np.nan, dtype=np.float32
+            (windowed_chunk_shape[0], windowed_chunk_shape[1], window_size_pixels**2),
+            np.nan,
+            dtype=np.float32,
         )
 
         # Loop through windows, getting fitted plane and residuals using singular value decomposition
