@@ -12,7 +12,7 @@ import sys
 import numpy as np
 import rasterio
 from numpy.lib.stride_tricks import sliding_window_view
-from psutil import virtual_memory
+import psutil
 from tqdm import tqdm
 
 os.chdir(pathlib.Path(__file__).parent.resolve())
@@ -133,7 +133,7 @@ def window_2d(data, window_size_pixels, center_values=True, nan_threshold=0.5):
     """
     # Obtain windows at each point - results in 4d array
     windows = sliding_window_view(data, (window_size_pixels, window_size_pixels))
-    windows = windows.copy()  # hotfix
+    windows = windows.copy() # read-only hotfix
 
     # Set windows to nan that have more than nan_threshold% nans (~arbritrary)
     insufficient_windows = (
@@ -273,79 +273,102 @@ def save_raster(dem_path, output, output_path, output_description):
         dest_file.write(output)
 
 
-def manage_memory(num_rows, num_cols, window_size_pixels):
+def manage_memory(dem_rows, dem_cols, window_size):
     """
-    Manage memory allocation for DEM processing.
+    Manage memory allocation for DEM (Digital Elevation Model) processing.
 
     Args:
-        num_rows (int): Number of rows in the DEM.
-        num_cols (int): Number of columns in the DEM.
-        window_size_pixels (int): Window size in pixels for processing.
+        dem_rows (int): Number of rows in the DEM.
+        dem_cols (int): Number of columns in the DEM.
+        window_size (int): Processing window size in pixels.
 
     Returns:
-        tuple: (overlap, desired_num_chunks)
+        float: Desired number of chunks for DEM processing.
     """
 
-    def get_user_memory_choice(full_memory, min_memory_needed):
-        """Prompt user to select or specify memory usage, re-prompt if insufficient."""
+    def prompt_user_memory_choice(total_memory_gb, min_memory_required_gb):
+        """
+        Prompt the user to select or specify memory allocation.
+
+        Args:
+            total_memory_gb (float): Total available system memory in GB.
+            min_memory_required_gb (float): Minimum memory required for processing in GB.
+
+        Returns:
+            float: Allocated memory for processing in GB.
+        """
         while True:
-            choice = input(
-                f"Available memory {full_memory:.2f} Gb. Use all [0] or specify [1]? "
+            user_choice = input(
+                f"Available memory: {total_memory_gb:.2f} GB. Use all [0] or specify [1]? "
             )
-            if choice == "0":
-                return full_memory * 0.9  # Use 90% of full available memory
-            elif choice == "1":
+            if user_choice == "0":
+                return total_memory_gb * 0.90  # Use 90% of available memory
+            elif user_choice == "1":
                 try:
-                    specified_memory = float(input("Specify memory to use (Gb): "))
-                    if 0 < specified_memory <= full_memory:
-                        if specified_memory >= min_memory_needed:
+                    specified_memory = float(input("Specify memory to use (GB): "))
+                    if 0 < specified_memory <= total_memory_gb:
+                        if specified_memory >= min_memory_required_gb:
                             return specified_memory
                         else:
                             print(
-                                f"Specified memory ({specified_memory:.2f} Gb) is insufficient. "
-                                f"At least {min_memory_needed:.2f} Gb is required."
+                                f"Insufficient memory specified ({specified_memory:.2f} GB). "
+                                f"At least {min_memory_required_gb:.2f} GB is required."
                             )
                     else:
-                        print(f"Enter a value between 0 and {full_memory:.2f} Gb.")
+                        print(f"Enter a value between 0 and {total_memory_gb:.2f} GB.")
                 except ValueError:
                     print("Invalid input. Please enter a numeric value.")
             else:
                 print("Invalid choice. Enter 0 or 1.")
 
-    # Get available memory
-    full_memory = virtual_memory().available / (1024**3)
+    # Get total available system memory
+    total_memory_gb = psutil.virtual_memory().available / (1024**3)
     print("Chunking DEM to reduce memory overhead...")
 
-    # Memory calculations
-    mem_per_pixel = 4  # float32 = 4 bytes
-    approx_mem_chunks = (
-        num_cols * num_rows * mem_per_pixel * window_size_pixels**2
-    ) / (1024**3)
-    approx_mem_rest = (3 * num_cols * num_rows * mem_per_pixel) / (1024**3)
-    min_chunk_size_mem = (window_size_pixels * num_rows * 4) / (1024**3)
-    min_memory_needed = (
-        approx_mem_rest + min_chunk_size_mem
-    ) * 1.05  # add buffer for smaller memory requirements
+    # Constants for memory calculations
+    bytes_per_pixel = 4  # float32 (4 bytes per pixel)
+    overlap_pixels = window_size // 2
+    safety_buffer = 1.1  # 10% safety margin
 
-    # Check if full memory is sufficient
-    if full_memory < min_memory_needed:
+    # Minimum chunk dimensions and memory usage
+    min_chunk_height = window_size
+    min_chunk_pixels = dem_cols * min_chunk_height
+
+    io_array_memory_gb = (
+        3 * dem_rows * dem_cols * bytes_per_pixel / (1024**3)
+    )  # Full input/output arrays
+    min_chunk_memory_gb = (
+        min_chunk_pixels * window_size**2 * bytes_per_pixel / (1024**3)
+    )  # Smallest possible chunk in memory
+    intermediate_memory_gb = (
+        (min_chunk_pixels * 9 * bytes_per_pixel) +  # U and residuals
+        (min_chunk_pixels * 2 * window_size * bytes_per_pixel) +  # Residual arrays
+        (3 * min_chunk_pixels * bytes_per_pixel)  # Gradient arrays
+    ) / (1024**3)
+
+    total_min_memory_gb = (
+        io_array_memory_gb + min_chunk_memory_gb + intermediate_memory_gb
+    ) * safety_buffer
+    min_chunk_processing_memory_gb = (
+        min_chunk_memory_gb + intermediate_memory_gb
+    ) * safety_buffer
+
+    # Check if system memory is sufficient
+    if total_memory_gb < total_min_memory_gb:
         sys.exit(
-            f"Insufficient total system memory ({full_memory:.2f} Gb). "
-            f"At least {min_memory_needed:.2f} Gb is required. Exiting..."
+            f"Insufficient system memory ({total_memory_gb:.2f} GB). "
+            f"At least {total_min_memory_gb:.2f} GB is required. Exiting..."
         )
 
-    # Get available memory from user
-    available_memory = get_user_memory_choice(full_memory, min_memory_needed)
+    # Prompt the user for memory allocation
+    allocated_memory_gb = prompt_user_memory_choice(total_memory_gb, total_min_memory_gb)
 
-    # Get desired number of chunks based on memory available
-    memory_for_chunks = available_memory - approx_mem_rest
-    desired_num_chunks = approx_mem_chunks / memory_for_chunks
+    # Calculate number of chunks based on available memory
+    available_memory_for_chunks_gb = allocated_memory_gb - io_array_memory_gb
+    memory_ratio = available_memory_for_chunks_gb / min_chunk_processing_memory_gb
+    desired_num_chunks = dem_rows / memory_ratio
 
-    overlap = window_size_pixels // 2
-    print(
-        f"Chunking DEM with {desired_num_chunks:.0f} chunks and overlap {overlap} pixels."
-    )
-    return overlap, desired_num_chunks
+    return desired_num_chunks
 
 
 def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method):
@@ -395,7 +418,8 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     num_rows, num_cols = np.shape(dem)
 
     # Memory management
-    overlap, desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
+    overlap = window_size_pixels//2
+    desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
 
     # Chunk DEM
     dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)
@@ -410,9 +434,9 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
             chunked_dem_shape[1] - overlap * 2,
             chunked_dem_shape[2] - overlap * 2,
         ),
-        np.nan,
+        np.nan, dtype=np.float32
     )
-    roughness_output = np.full(np.shape(slope_output), np.nan)
+    roughness_output = np.full(np.shape(slope_output), np.nan, dtype=np.float32)
     start_time = time.time()  # set start time
 
     # Iterate over chunks, calculating slope and roughness
@@ -421,25 +445,25 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         print(f"Processing chunk {i+1}/{num_chunks}...")
 
         # Get windows over current chunk
-        windows = window_2d(dem[i], window_size_pixels)
-        chunk_shape = np.shape(windows)
+        windowed_chunk = window_2d(dem[i], window_size_pixels)
+        windowed_chunk_shape = np.shape(windowed_chunk)
 
         # Initialise orthogonal vectors (U) and residual vectors
-        U = np.full((chunk_shape[0], chunk_shape[1], 3, 3), np.nan)
+        U = np.full((windowed_chunk_shape[0], windowed_chunk_shape[1], 3, 3), np.nan, dtype=np.float32)
         residuals = np.full(
-            (chunk_shape[0], chunk_shape[1], window_size_pixels**2), np.nan
+            (windowed_chunk_shape[0], windowed_chunk_shape[1], window_size_pixels**2), np.nan, dtype=np.float32
         )
 
         # Loop through windows, getting fitted plane and residuals using singular value decomposition
-        for j in tqdm(range(chunk_shape[0])):
-            for k in range(chunk_shape[1]):
+        for j in tqdm(range(windowed_chunk_shape[0])):
+            for k in range(windowed_chunk_shape[1]):
 
                 # Skip if all window values are nan
-                if np.isnan(windows[j, k]).all():
+                if np.isnan(windowed_chunk[j, k]).all():
                     continue
 
                 # Perform SVD
-                U[j, k], residuals[j, k] = perform_svd(windows[j, k], resolution)
+                U[j, k], residuals[j, k] = perform_svd(windowed_chunk[j, k], resolution)
 
         # Use normal vector of slope to solve slope equation and find dz along x and y axes, sum resulting vectors, take gradient
         dz_x = -(1 / U[:, :, 2, 2]) * (resolution * U[:, :, 1, 2])
@@ -469,8 +493,8 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
             sys.exit(f"{roughness_method} not a valid roughness method. Exiting...")
 
     # Combine chunks
-    slope_output = np.array([np.concatenate(slope_output, axis=0)])
-    roughness_output = np.array([np.concatenate(roughness_output, axis=0)])
+    slope_output = np.asarray([np.concatenate(slope_output, axis=0)])
+    roughness_output = np.asarray([np.concatenate(roughness_output, axis=0)])
 
     print(f"Saving...")
 
@@ -480,7 +504,9 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     save_raster(dem_path, slope_output, slope_output_path, slope_output_description)
 
     # Save roughness raster
-    roughness_output_path = dem_path.split("/")[-1].split(".")[0] + "_roughness.tif"
+    roughness_output_path = (
+        dem_path.split("/")[-1].split(".")[0] + "_roughness_{roughness_method}.tif"
+    )
     roughness_method_name = {
         "std": "standard deviation",
         "mad": "median absolute deviation",
