@@ -35,7 +35,7 @@ To generate the slope and roughness maps, simply run **dem_to_slope_and_roughnes
 - **DEM_PATH** (string): *The path to the DEM file.*
 - **DEM_RESOLUTION** (string): *The resolution of the DEM in meters.*
 - **WINDOW_SIZE** (int): *The size of the window around each pixel in meters over which slope and roughness will be calculated.*
-- **ROUGHNESS_METHOD** (int): *The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2p' (peak-to-peak). Defaults to 'std'.*
+- **ROUGHNESS_METHOD** (int): *The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2t' (peak-to-trough). Defaults to 'std'.*
 
 ### Example:
 
