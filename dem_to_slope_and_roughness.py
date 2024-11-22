@@ -341,7 +341,7 @@ def manage_memory(dem_rows, dem_cols, window_size):
         min_chunk_pixels * window_size**2 * bytes_per_pixel / (1024**3)
     )  # Smallest possible chunk in memory
     intermediate_memory_gb = (
-        (min_chunk_pixels * 9 * bytes_per_pixel)  # U and residuals
+        (min_chunk_pixels * 9 * bytes_per_pixel)  # U arrays
         + (min_chunk_pixels * 2 * window_size * bytes_per_pixel)  # Residual arrays
         + (3 * min_chunk_pixels * bytes_per_pixel)  # Gradient arrays
     ) / (1024**3)
