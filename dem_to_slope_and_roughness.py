@@ -275,7 +275,7 @@ def save_raster(dem_path, output, output_path, output_description):
 
 def manage_memory(dem_rows, dem_cols, window_size):
     """
-    Manage memory allocation for DEM (Digital Elevation Model) processing.
+    Manage memory allocation for DEM processing.
 
     Args:
         dem_rows (int): Number of rows in the DEM.
@@ -383,7 +383,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         dem_path (str): The file path to the DEM raster.
         resolution (float): The spatial resolution of the DEM in meters.
         window_size (int): The window size in meters for calculating slope and roughness.
-        roughness_method (str): The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2p' (peak-to-peak).
+        roughness_method (str): The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2t' (peak-to-trough).
 
     Returns:
         None
@@ -491,7 +491,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         elif roughness_method == "mad":
             roughness_output[i] = nanmad(np.absolute(residuals), axis=-1)
 
-        elif roughness_method == "p2p":
+        elif roughness_method == "p2t":
             with warnings.catch_warnings():  # catch warning for all nan slice
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 roughness_output[i] = np.nanmax(residuals, axis=-1) - np.nanmin(
@@ -519,7 +519,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     roughness_method_name = {
         "std": "standard deviation",
         "mad": "median absolute deviation",
-        "p2p": "peak-to-peak",
+        "p2t": "peak-to-trough",
     }
     roughness_output_description = f"Roughness raster calculated from a DEM at a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the surface roughness variation ({roughness_method_name[roughness_method]}) of the DEM within each window in meters.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
     save_raster(
@@ -550,10 +550,10 @@ if __name__ == "__main__":
         type=int,
     )
 
-    valid_methods = ["std", "mad", "p2p"]
+    valid_methods = ["std", "mad", "p2t"]
     parser.add_argument(
         "roughness_method",
-        help="The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2p' (peak-to-peak).",
+        help="The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2t' (peak-to-trough).",
         type=str,
         choices=valid_methods,
         nargs="?",
