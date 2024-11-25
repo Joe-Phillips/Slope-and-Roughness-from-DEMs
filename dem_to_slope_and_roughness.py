@@ -362,7 +362,7 @@ def manage_memory(dem_rows, dem_cols, window_size):
 
     # Prompt the user for memory allocation
     allocated_memory_gb = prompt_user_memory_choice(
-        total_memory_gb, total_min_memory_gb
+    total_memory_gb, total_min_memory_gb
     )
 
     # Calculate number of chunks based on available memory
@@ -419,11 +419,15 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     dem = read_raster(dem_path)
     num_rows, num_cols = np.shape(dem)
 
-    # Memory management
+    # Memory Management
+    # Vectorizing over larger chunks improves speed but significantly increases memory usage, especially with a windowed view.
+    # The nested SVD loop is the current bottleneck. Does increasing chunk size provide a proportional speedup,
+    # or is it just unnecessarily memory-intensive?
     overlap = window_size_pixels // 2
     desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
 
     # Chunk DEM
+    # *Uniform* chunking not necessary, but done to make possible future SVD vectorisation solutions viable
     dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)
     num_chunks = len(dem)
     chunked_dem_shape = np.shape(dem)
@@ -464,6 +468,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         )
 
         # Loop through windows, getting fitted plane and residuals using singular value decomposition
+        # Frustrating this has to be a nested loop - can't figure out how to vectorise this
         for j in tqdm(range(windowed_chunk_shape[0])):
             for k in range(windowed_chunk_shape[1]):
 
@@ -508,20 +513,20 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     print(f"Saving...")
 
     # Save slope raster
-    slope_output_path = dem_path.split("/")[-1].split(".")[0] + "_slope.tif"
-    slope_output_description = f"Slope raster calculated from a DEM at a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the gradient of the DEM within each window in degrees.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
+    slope_output_path = dem_path.split("/")[-1].split(".")[0] + f"_slope_{window_size_pixels}x{window_size_pixels}.tif"
+    slope_output_description = f"Slope raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the gradient magnitude (in degrees) of a plane fitted through the DEM points within each window.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
     save_raster(dem_path, slope_output, slope_output_path, slope_output_description)
 
     # Save roughness raster
     roughness_output_path = (
-        dem_path.split("/")[-1].split(".")[0] + "_roughness_{roughness_method}.tif"
+        dem_path.split("/")[-1].split(".")[0] + f"_roughness_{roughness_method}_{window_size_pixels}x{window_size_pixels}.tif"
     )
     roughness_method_name = {
         "std": "standard deviation",
         "mad": "median absolute deviation",
         "p2t": "peak-to-trough",
     }
-    roughness_output_description = f"Roughness raster calculated from a DEM at a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the surface roughness variation ({roughness_method_name[roughness_method]}) of the DEM within each window in meters.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
+    roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters)\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
     save_raster(
         dem_path, roughness_output, roughness_output_path, roughness_output_description
     )
