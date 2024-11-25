@@ -526,7 +526,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         "mad": "median absolute deviation",
         "p2t": "peak-to-trough",
     }
-    roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters)\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
+    roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters).\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
     save_raster(
         dem_path, roughness_output, roughness_output_path, roughness_output_description
     )
