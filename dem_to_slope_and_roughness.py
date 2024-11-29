@@ -555,14 +555,14 @@ if __name__ == "__main__":
         type=int,
     )
 
-    valid_methods = ["std", "mad", "p2t"]
+    valid_methods = ["p2t", "std", "mad"]
     parser.add_argument(
         "roughness_method",
-        help="The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2t' (peak-to-trough).",
+        help="The method used to calculate roughness. Options: 'p2t' (peak-to-trough), 'std' (standard deviation), 'mad' (median absolute deviation).",
         type=str,
         choices=valid_methods,
         nargs="?",
-        default="std",
+        default="p2t",
     )
 
     args = parser.parse_args()
