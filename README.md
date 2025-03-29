@@ -16,7 +16,7 @@ Similarly, standard roughness metrics like the Terrain Ruggedness Index (TRI) an
 
 Despite these limitations, these approaches are widely used in GIS software such as GRASS, ArcGIS, and GDAL (the backend for QGIS).
 
-This project improves upon traditional methods by calculating slope through Least Squares Regression, fitting a plane to a given DEM point and its surrounding pixels. The slope is then derived from the plane’s gradient in the x and y directions and expressed in degrees. Roughness is computed independently of slope by analysing the dispersion of _orthogonal_ residuals from the fitted plane. By measuring roughness in a direction perpendicular to the local topographic trend, this approach ensures that roughness values truly reflect surface variability rather than being biased by overall terrain inclination. The roughness can be quantified using one of three methods:
+This project improves upon traditional methods by calculating slope through Least Squares Regression, fitting a plane to a given DEM point and its surrounding pixels. The slope is then derived from the plane’s gradient in the x and y directions and expressed in degrees. Roughness is computed independently of slope by analysing the dispersion of _orthogonal_ residuals from the fitted plane. By measuring roughness in a direction perpendicular to the local slope trend, this approach ensures that roughness values truly reflect surface variability rather than being biased by overall terrain inclination. The roughness can be quantified using one of three methods:
 
     Range (range): Maximum minus minimum residuals.
 
