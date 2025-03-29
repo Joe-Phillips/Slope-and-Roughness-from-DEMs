@@ -3,19 +3,26 @@
 # ----------------------------------------------------------------------
 
 import argparse
-import os
-import pathlib
+from itertools import product
 import time
 import warnings
-import sys
-
 import numpy as np
 import rasterio
-from numpy.lib.stride_tricks import sliding_window_view
-import psutil
 from tqdm import tqdm
+import multiprocessing as mp
+from itertools import product
+from functools import partial
+import tempfile
+import os
+import sys
+from multiprocessing.shared_memory import SharedMemory
+import logging
+import atexit
 
-os.chdir(pathlib.Path(__file__).parent.resolve())
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# os.chdir(pathlib.Path(__file__).parent.resolve())
 
 # ----------------------------------------------------------------------
 # Functions
@@ -24,8 +31,8 @@ os.chdir(pathlib.Path(__file__).parent.resolve())
 
 def read_raster(dem_path):
     """
-    Reads a raster from the specified path, converts it to a 2D numpy array,
-    and replaces void data values (-9999) with NaN.
+    Reads the first band of a raster from the specified path, converts it to a 2D numpy array,
+    and replaces void data values with NaN.
 
     Args:
         dem_path (str): Path to the raster file.
@@ -33,174 +40,74 @@ def read_raster(dem_path):
     Returns:
         numpy.ndarray: 2D array of values with voids set to NaN.
     """
+
     # Open raster file using rasterio
     with rasterio.open(dem_path) as src:
-        # Read the data into a numpy array
         dem = src.read(1, masked=True).astype("float32")  # Read the first band
 
-    # Void elevation data commonly given as -9999 in rasters - set to nan
-    dem = np.where(dem == -9999, np.nan, dem)
+    # Replace void values with NaN
+    nodata_value = src.nodata
+    dem = np.where(dem == nodata_value, np.nan, dem)
 
     return dem
 
 
-def get_factors(n):
+def fit_plane(x, y, z):
     """
-    Calculates all factors of a given integer.
+    Fits a plane to a set of 3D points using least squares regression and extracts the surface gradients
+    in the x and y directions.
 
     Args:
-        n (int): The integer for which to find factors.
-
-    Returns:
-        numpy.ndarray: Sorted array of factors of the integer `n`.
-    """
-    # Loop through integers and find factors
-    factors = set()  # use a set to avoid duplicate factors
-    for i in range(1, int(n**0.5) + 1):
-
-        # Check if i is a factor
-        if n % i == 0:
-            factors.add(i)
-            factors.add(n // i)
-
-    return np.array(sorted(factors))
-
-
-def uniform_chunk_2d(data, overlap, desired_num_chunks):
-    """
-    Divides a 2D array into a specified number of lengthwise chunks of equal size, allowing optional overlap.
-
-    Args:
-        data (numpy.ndarray): The 2D array to be split into chunks.
-        overlap (int): The number of rows to overlap between adjacent chunks. Pads data with NaNs of
-                       this width to ensure overlap at boundaries.
-        desired_num_chunks (int): The intended number of chunks to divide the array into. The actual
-                                  number may be adjusted based on array dimensions and overlap to ensure
-                                  uniform chunk sizes.
-
-    Returns:
-        list: A list of numpy arrays, each representing a 2D chunk of the original data with specified overlap.
-    """
-
-    # Pad data with nans of size overlap (allows for seamless windowing around border values)
-    num_rows, num_cols = np.shape(data)
-    data = np.pad(
-        data,
-        ((overlap, overlap), (overlap, overlap)),
-        "constant",
-        constant_values=np.nan,
-    )
-
-    # Get number of chunks to evenly split data into
-    possible_num_chunks = get_factors(num_rows)  # get possible candidates
-    possible_num_chunks = possible_num_chunks[
-        possible_num_chunks - desired_num_chunks >= 0
-    ]  # filter out num_chunks lower than desired1
-    num_chunks = possible_num_chunks[
-        np.argmin(np.absolute(possible_num_chunks - desired_num_chunks))
-    ]  # get closest candidate that evenly divides the data
-
-    print(f"Divided into {num_chunks} chunk(s).")
-
-    # Split data into chunks, with overlaps in x and y
-    chunk_height = num_rows // num_chunks
-    data = [
-        data[y - overlap : y + chunk_height + overlap, 0 : num_cols + overlap * 2]
-        for y in range(overlap, num_rows, chunk_height)
-    ]
-
-    return data
-
-
-def window_2d(data, window_size_pixels, center_values=True, nan_threshold=0.5):
-    """
-    Extracts square windows of data from a 2D array centered on each cell, with optional mean-centering
-    and NaN thresholding.
-
-    Args:
-        data (numpy.ndarray): 2D array of data values.
-        window_size_pixels (int): Width and height of each square window in pixels.
-        center_values (bool): If True, centers the values in each window by subtracting the mean
-                              of values in that window. Default is True.
-        nan_threshold (float): Proportion of NaN values allowed per window (0 to 1). Windows
-                               with a higher proportion of NaNs are excluded by setting all
-                               elements in the window to NaN. Default is 0.5.
+        x (numpy.ndarray): 1D array of x-coordinate values, obtained from flattening a zero-centered 2D array.
+        y (numpy.ndarray): 1D array of y-coordinate values, obtained from flattening a zero-centered 2D array.
+        z (numpy.ndarray): 1D array of elevation (height) values, obtained from flattening a zero-centered 2D array.
 
     Returns:
         tuple: A tuple containing:
-            - numpy.ndarray: 4D array (H, W, window_size_pixels, window_size_pixels) where each
-              slice contains the data values for a window centered on each cell in the input array.
+            - a (float): Gradient of the fitted plane in the x direction (dz/dx).
+            - b (float): Gradient of the fitted plane in the y direction (dz/dy).
     """
-    # Obtain windows at each point - results in 4d array
-    windows = sliding_window_view(data, (window_size_pixels, window_size_pixels))
-    windows = windows.copy()  # read-only hotfix
 
-    # Set windows to nan that have more than nan_threshold% nans (~arbritrary)
-    insufficient_windows = (
-        np.count_nonzero(np.isnan(windows), axis=(-1, -2))
-        >= (window_size_pixels**2) * nan_threshold
-    )
-    windows[insufficient_windows] = np.full(
-        (window_size_pixels, window_size_pixels), np.nan
-    )
+    # Remove NaN values
+    valid_mask = ~np.isnan(z)
+    x, y, z = x[valid_mask], y[valid_mask], z[valid_mask]
 
-    # Center windows
-    if center_values:
-        with warnings.catch_warnings():  # catch "mean of empty slice" warning
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            windows = windows - np.nanmean(windows, axis=-1)[:, :, :, np.newaxis]
+    # Design matrix for least squares (Ax + By + D = Z)
+    A = np.column_stack((x, y, np.ones_like(x)))
+    coef, _, _, _ = np.linalg.lstsq(A, z, rcond=None)  # Solve for a, b, d
 
-    return windows
+    # Extract coefficients
+    a, b, _ = coef  # a = dz/dx, b = dz/dy
+
+    return a, b
 
 
-def perform_svd(z, resolution):
+def get_orthogonal_residuals(x, y, z, a, b):
     """
-    Applies Singular Value Decomposition (SVD) on a 2D elevation array to fit a best-fit plane
-    and calculate the residuals relative to this plane.
-
-    References:
-        - PyVista: Plane fitting using SVD: https://docs.pyvista.org/_modules/pyvista/utilities/helpers.html#fit_plane_to_points
-        - Orthogonal Regression Demo: https://www.mbfys.ru.nl/~robvdw/CNP04/LAB_ASSIGMENTS/LAB05_CN05/MATLAB2007b/stats/html/orthoregdemo.html
+    Computes the orthogonal residuals (perpendicular distances) from a set of 3D points
+    to a fitted plane.
 
     Args:
-        z (numpy.ndarray): 2D array of elevation (height) values.
-        resolution (float): Spatial resolution of the elevation data in meters.
+        x (numpy.ndarray): 1D array of x-coordinate values, obtained from flattening a zero-centered 2D array.
+        y (numpy.ndarray): 1D array of y-coordinate values, obtained from flattening a zero-centered 2D array.
+        z (numpy.ndarray): 1D array of elevation (height) values, obtained from flattening a zero-centered 2D array.
+        a (float): Gradient of the fitted plane in the x direction (dz/dx).
+        b (float): Gradient of the fitted plane in the y direction (dz/dy).
 
     Returns:
-        tuple: A tuple containing:
-            - numpy.ndarray: Matrix of orthogonal vectors (3x3), where the last column is the normal vector of the fitted plane.
-            - numpy.ndarray: Array of residuals, indicating the vertical distances of each point in the original elevation data
-                             from the fitted plane, in the same shape as the input array.
+        numpy.ndarray: 1D array of orthogonal residuals, representing the perpendicular distances
+                       of each point to the fitted plane.
     """
 
-    # Get x and y coords centered around 0
-    z_shape = np.shape(z)
-    x = np.tile(
-        (np.arange(z_shape[0]) - (z_shape[0] - 1) / 2) * resolution,
-        (z_shape[0], 1),
-    )
-    y = np.flip(x.T)
+    # Compute residuals
+    fitted_plane = a * x + b * y
+    residuals = z - fitted_plane
 
-    # Flatten x, y, and z coords
-    x = x.flatten()
-    y = y.flatten()
-    z = z.flatten()
+    # Compute orthogonal residuals (perpendicular distances to the plane)
+    norm = np.sqrt(a**2 + b**2 + 1)
+    orthogonal_residuals = residuals / norm
 
-    # Stack x,y,z coordinates
-    xyz = np.column_stack((x, y, z))
-
-    # Get orthogonal vectors of fitted plane
-    nan_mask = np.isnan(z)
-    U, _, _ = np.linalg.svd(xyz[~nan_mask].T)
-
-    # Get residuals (dot product of plane normal unit vector with points - einsum ~2x faster than np.dot)
-    residuals = np.einsum(
-        "ij, ij->i",
-        xyz,
-        np.tile(U[:, 2], (z_shape[0] ** 2, 1)),
-    )
-
-    return U, residuals
+    return orthogonal_residuals
 
 
 def nanmad(data, axis=None):
@@ -214,6 +121,7 @@ def nanmad(data, axis=None):
     Returns:
         numpy.ndarray or float: MAD of the input data along the specified axis.
     """
+
     # Ignore NaN values in the median calculation
     with warnings.catch_warnings():  # catch warning for all nan slice
         warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -243,6 +151,13 @@ def save_raster(dem_path, output, output_path, output_description):
     Returns:
         None
     """
+
+    # Convert NaNs to -9999
+    output[np.isnan(output)] = -9999
+
+    # Reshape to give 1-length channel dimension
+    output = output[np.newaxis, :, :]
+
     # Open source DEM to get transform and metadata
     with rasterio.open(dem_path) as src:
         transform = src.transform
@@ -264,6 +179,7 @@ def save_raster(dem_path, output, output_path, output_description):
             "dtype": np.float32,
             "crs": crs,
             "transform": transform,
+            "nodata": -9999,
         }
     )
 
@@ -273,265 +189,231 @@ def save_raster(dem_path, output, output_path, output_description):
         dest_file.write(output)
 
 
-def manage_memory(dem_rows, dem_cols, window_size):
+def process_tile(tile_coords, x, y, roughness_method, window_size_pixels, resolution):
     """
-    Manage memory allocation for DEM processing.
+    Processes a single tile of the DEM, computing the slope and roughness 
+    values for each pixel over a defined window.
 
     Args:
-        dem_rows (int): Number of rows in the DEM.
-        dem_cols (int): Number of columns in the DEM.
-        window_size (int): Processing window size in pixels.
+        tile_coords (tuple): A tuple of the form (row_start, row_end, col_start, col_end), defining 
+                              the boundaries of the tile in the DEM.
+        x (numpy.ndarray): The x-coordinates (pixel indices) corresponding to the DEM data.
+        y (numpy.ndarray): The y-coordinates (pixel indices) corresponding to the DEM data.
+        roughness_method (str): The method used to compute the roughness of the surface. Options include:
+                               'std' (standard deviation), 'mad' (median absolute deviation), 
+                               'range' (range between the maximum and minimum residuals).
+        window_size_pixels (int): The size of the moving window (in pixels) used for calculating slope and roughness.
+        resolution (float): The spatial resolution of the DEM in meters per pixel.
 
     Returns:
-        float: Desired number of chunks for DEM processing.
+        tuple: A tuple (row_start, col_start, local_slope, local_roughness), where:
+            - row_start, col_start are the coordinates of the top-left corner of the tile.
+            - local_slope (numpy.ndarray): The calculated slope values for the tile.
+            - local_roughness (numpy.ndarray): The calculated roughness values for the tile.
     """
 
-    def prompt_user_memory_choice(total_memory_gb, min_memory_required_gb):
-        """
-        Prompt the user to select or specify memory allocation.
+    try:
+        # Get tile row and col start/end
+        row_start, row_end, col_start, col_end = tile_coords
 
-        Args:
-            total_memory_gb (float): Total available system memory in GB.
-            min_memory_required_gb (float): Minimum memory required for processing in GB.
+        # Initialise slope and roughness arrays at tile location
+        local_slope = np.full((row_end - row_start, col_end - col_start), np.nan, dtype=np.float32)
+        local_roughness = np.full((row_end - row_start, col_end - col_start), np.nan, dtype=np.float32)
+        
+        # Loop through pixels in tile
+        for row, col in product(range(row_start, row_end), range(col_start, col_end)):
 
-        Returns:
-            float: Allocated memory for processing in GB.
-        """
-        while True:
-            user_choice = input(
-                f"Available memory: {total_memory_gb:.2f} GB. Use all [0] or specify [1]? "
-            )
-            if user_choice == "0":
-                return total_memory_gb * 0.90  # Use 90% of available memory
-            elif user_choice == "1":
-                try:
-                    specified_memory = float(input("Specify memory to use (GB): "))
-                    if 0 < specified_memory <= total_memory_gb:
-                        if specified_memory >= min_memory_required_gb:
-                            return specified_memory
-                        else:
-                            print(
-                                f"Insufficient memory specified ({specified_memory:.2f} GB). "
-                                f"At least {min_memory_required_gb:.2f} GB is required."
-                            )
-                    else:
-                        print(f"Enter a value between 0 and {total_memory_gb:.2f} GB.")
-                except ValueError:
-                    print("Invalid input. Please enter a numeric value.")
-            else:
-                print("Invalid choice. Enter 0 or 1.")
+            # Get window around pixel
+            window_size_pixels_half = window_size_pixels//2
+            window = shared_dem[row - window_size_pixels_half : row + window_size_pixels_half + 1, col - window_size_pixels_half : col + window_size_pixels_half + 1]
 
-    # Get total available system memory
-    total_memory_gb = psutil.virtual_memory().available / (1024**3)
-    print("Chunking DEM to reduce memory overhead...")
-
-    # Constants for memory calculations
-    bytes_per_pixel = 4  # float32 (4 bytes per pixel)
-    overlap_pixels = window_size // 2
-    safety_buffer = 1.1  # 10% safety margin
-
-    # Minimum chunk dimensions and memory usage
-    min_chunk_height = window_size
-    min_chunk_pixels = dem_cols * min_chunk_height
-
-    io_array_memory_gb = (
-        3 * dem_rows * dem_cols * bytes_per_pixel / (1024**3)
-    )  # Full input/output arrays
-    min_chunk_memory_gb = (
-        min_chunk_pixels * window_size**2 * bytes_per_pixel / (1024**3)
-    )  # Smallest possible chunk in memory
-    intermediate_memory_gb = (
-        (min_chunk_pixels * 9 * bytes_per_pixel)  # U arrays
-        + (min_chunk_pixels * 2 * window_size * bytes_per_pixel)  # Residual arrays
-        + (3 * min_chunk_pixels * bytes_per_pixel)  # Gradient arrays
-    ) / (1024**3)
-
-    total_min_memory_gb = (
-        io_array_memory_gb + min_chunk_memory_gb + intermediate_memory_gb
-    ) * safety_buffer
-    min_chunk_processing_memory_gb = (
-        min_chunk_memory_gb + intermediate_memory_gb
-    ) * safety_buffer
-
-    # Check if system memory is sufficient
-    if total_memory_gb < total_min_memory_gb:
-        sys.exit(
-            f"Insufficient system memory ({total_memory_gb:.2f} GB). "
-            f"At least {total_min_memory_gb:.2f} GB is required. Exiting..."
-        )
-
-    # Prompt the user for memory allocation
-    allocated_memory_gb = prompt_user_memory_choice(
-    total_memory_gb, total_min_memory_gb
-    )
-
-    # Calculate number of chunks based on available memory
-    available_memory_for_chunks_gb = allocated_memory_gb - io_array_memory_gb
-    memory_ratio = available_memory_for_chunks_gb / min_chunk_processing_memory_gb
-    desired_num_chunks = dem_rows / memory_ratio
-
-    return desired_num_chunks
+            # Skip if 50% or more values are NaNs
+            if np.isnan(window).sum() > (window_size_pixels ** 2) / 2: 
+                continue
+            
+            z = (window - np.nanmean(window)).flatten()
+            a, b = fit_plane(x, y, z)
+            dz_x, dz_y = a * resolution, b * resolution
+            local_slope[row - row_start, col - col_start] = np.abs(np.rad2deg(np.arctan(np.sqrt(dz_x**2 + dz_y**2))))
+            
+            residuals = get_orthogonal_residuals(x, y, z, a, b)
+            if roughness_method == "std":
+                local_roughness[row - row_start, col - col_start] = np.nanstd(np.abs(residuals))
+            elif roughness_method == "mad":
+                local_roughness[row - row_start, col - col_start] = nanmad(np.abs(residuals))
+            elif roughness_method == "range":
+                local_roughness[row - row_start, col - col_start] = np.nanmax(residuals) - np.nanmin(residuals)
+        
+        return row_start, col_start, local_slope, local_roughness
+    
+    except Exception as e:
+        logger.error(f"Error at tile {tile_coords}: {e}")
+        return None, None, None, None
 
 
-def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method):
+def init_worker(shared_name, shape, dtype):
     """
-    Takes a DEM raster file, divides it into chunks with
-    overlap, calculates the slope and roughness for each chunk using Singular Value Decomposition
-    (SVD), and saves the resulting slope and roughness rasters.
+    Initialise worker processes with access to shared memory.
+
+    Args:
+        shared_name (str): The name of the shared memory block.
+        shape (tuple): The shape of the DEM data array to reshape the shared memory into.
+        dtype (numpy.dtype): The data type of the shared DEM array.
+
+    Returns:
+        None
+    """
+    global shared_dem
+    existing_shm = SharedMemory(name=shared_name) # Reconnect to shared memory by name
+    shared_dem = np.ndarray(shape, dtype=dtype, buffer=existing_shm.buf) # Interpret it as a numpy array
+    atexit.register(existing_shm.close) # Ensure workers close their connection when done
+
+# from memory_profiler import profile
+# @profile
+def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method, n_processes=None, tile_size=256):
+    """
+    Calculates slope and roughness from a DEM raster.
 
     Args:
         dem_path (str): The file path to the DEM raster.
         resolution (float): The spatial resolution of the DEM in meters.
         window_size (int): The window size in meters for calculating slope and roughness.
-        roughness_method (str): The method used to calculate roughness. Options: 'std' (standard deviation), 'mad' (median absolute deviation), 'p2t' (peak-to-trough).
+        roughness_method (str): The method used to calculate roughness.
+                               Options: 'std' (standard deviation),
+                                       'mad' (median absolute deviation),
+                                       'range' (minimum-to-maximum difference).
+        n_processes (int, optional): Number of processes to use. Defaults to None (uses CPU count).
 
     Returns:
         None
     """
 
-    # check window size produces odd number of pixels
+    # Set start time
+    start_time = time.time()
+
+    # Check window size produces odd number of pixels
     window_size_pixels = int(window_size / resolution)
     if window_size_pixels % 2 == 0:
         print(
             f"WARNING: Window size of {window_size} m produces an even number of pixels ({window_size_pixels}), but an odd number is required."
         )
-
+    
         # Options for nearest odd window sizes
         option_1, option_2 = (window_size_pixels + 1) * resolution, (
             window_size_pixels - 1
         ) * resolution
         choice = None
 
-        # Loop until valid choice is made
-        while choice not in {"0", "1"}:
-            choice = input(
-                f"Would you prefer a window size of {option_1} m [0] or {option_2} m [1]? "
-            )
-            if choice not in {"0", "1"}:
-                print("Invalid input. Please input 0 or 1.")
+        # If running interactively, give choice to user
+        if sys.stdin.isatty(): 
 
-        # Update window size based on choice
-        window_size = option_1 if choice == "0" else option_2
-        window_size_pixels = int(window_size / resolution)
+            # Loop until valid choice is made
+            while choice not in {"0", "1"}:
+                choice = input(
+                    f"Would you prefer a window size of {option_1} m [0] or {option_2} m [1]? "
+                )
+                if choice not in {"0", "1"}:
+                    print("Invalid input. Please input 0 or 1.")
+
+            # Update window size based on choice
+            window_size = option_1 if choice == "0" else option_2
+            window_size_pixels = int(window_size / resolution)
+
+        else:
+            window_size = option_1
 
     # Read in DEM
     print("Reading in DEM...")
     dem = read_raster(dem_path)
-    num_rows, num_cols = np.shape(dem)
+    num_rows, num_cols = dem.shape
 
-    # Memory Management
-    # Vectorizing over larger chunks improves speed but significantly increases memory usage, especially with a windowed view.
-    # The nested SVD loop is the current bottleneck. Does increasing chunk size provide a proportional speedup,
-    # or is it just unnecessarily memory-intensive?
-    overlap = window_size_pixels // 2
-    desired_num_chunks = manage_memory(num_rows, num_cols, window_size_pixels)
+    # Create a shared memory DEM to enable efficient multiprocessing without redundant copies
+    # Add NaN padding to support edge computations during window-based operations 
+    pad_width = window_size_pixels // 2
+    shm = SharedMemory(create=True, size=(num_rows + 2 * pad_width) * (num_cols + 2 * pad_width) * np.float32().nbytes) # Define raw block of memory
+    if n_processes == 1: # make global in case of serial - in parallel, processes are initialised with this
+        global shared_dem
+    shared_dem = np.ndarray((num_rows + 2 * pad_width, num_cols + 2 * pad_width), dtype=np.float32, buffer=shm.buf) # Interpret it as a numpy array
+    shared_dem[:] = np.nan # Fill with NaN
+    shared_dem[pad_width:-pad_width, pad_width:-pad_width] = dem # Fill non-padded region with input DEM
+    del dem
 
-    # Chunk DEM
-    # *Uniform* chunking not necessary, but done to make possible future SVD vectorisation solutions viable
-    dem = uniform_chunk_2d(dem, overlap, desired_num_chunks)
-    num_chunks = len(dem)
-    chunked_dem_shape = np.shape(dem)
+    # Precompute x, y coordinates for each window
+    x = (np.arange(window_size_pixels) - (window_size_pixels - 1) / 2) * resolution
+    y = (np.arange(window_size_pixels) - (window_size_pixels - 1) / 2) * resolution
+    x, y = np.meshgrid(x, y)
+    x, y = x.flatten(), y.flatten()
 
-    # Intialise outputs, with chunk overlaps removed
-    overlap = window_size_pixels // 2
-    slope_output = np.full(
-        (
-            chunked_dem_shape[0],
-            chunked_dem_shape[1] - overlap * 2,
-            chunked_dem_shape[2] - overlap * 2,
-        ),
-        np.nan,
-        dtype=np.float32,
-    )
-    roughness_output = np.full(np.shape(slope_output), np.nan, dtype=np.float32)
-    start_time = time.time()  # set start time
+    try:
+        with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmpdir:
 
-    # Iterate over chunks, calculating slope and roughness
-    for i in range(num_chunks):
+            # Define file paths for temporary disk-backed arrays storing slope and roughness data
+            slope_path = os.path.join(tmpdir, 'slope_tmp.dat')
+            roughness_path = os.path.join(tmpdir, 'roughness_tmp.dat')
+            
+            # Create memory-mapped arrays to store slope and roughness efficiently without loading them entirely into memory
+            slope_array = np.memmap(slope_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols))
+            roughness_array = np.memmap(roughness_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols))
+            
+            # Divide the DEM into smaller tiles
+            n_processes = mp.cpu_count() if n_processes is None else n_processes
+            valid_tile_rows = range(pad_width, num_rows + pad_width, tile_size)
+            valid_tile_cols = range(pad_width, num_cols + pad_width, tile_size) 
+            tiles = [(r, min(r + tile_size, num_rows + pad_width), c, min(c + tile_size, num_cols + pad_width))
+                for r in valid_tile_rows for c in valid_tile_cols] # Defined with respect to the padded input DEM, with padded pixels ignored
 
-        print(f"Processing chunk {i+1}/{num_chunks}...")
+            # Create a partial function by pre-loading arguments into process_tile 
+            process_tile_partial = partial(process_tile, x=x, y=y, roughness_method=roughness_method, window_size_pixels=window_size_pixels, resolution=resolution)
+            
+            # Process tles
+            if n_processes == 1: # serial
+                for tile in tqdm(tiles, desc="Computing slope and roughness..."):
+                    row_start, col_start, local_slope, local_roughness = process_tile_partial(tile)
+                    row_start, col_start = row_start - pad_width, col_start - pad_width
+                    slope_array[row_start:row_start+local_slope.shape[0], col_start:col_start+local_slope.shape[1]] = local_slope
+                    roughness_array[row_start:row_start+local_roughness.shape[0], col_start:col_start+local_roughness.shape[1]] = local_roughness
+            else: # parallel
+                mp.set_start_method("spawn", force=True)
+                with mp.Pool(processes=n_processes, initializer=init_worker, initargs=(shm.name, shared_dem.shape, np.float32)) as pool:
+                    for row_start, col_start, local_slope, local_roughness in tqdm(pool.imap(process_tile_partial, tiles), total=len(tiles), desc="Computing slope and roughness..."):
+                        row_start, col_start = row_start - pad_width, col_start - pad_width
+                        slope_array[row_start:row_start+local_slope.shape[0], col_start:col_start+local_slope.shape[1]] = local_slope
+                        roughness_array[row_start:row_start+local_roughness.shape[0], col_start:col_start+local_roughness.shape[1]] = local_roughness
 
-        # Get windows over current chunk
-        windowed_chunk = window_2d(dem[i], window_size_pixels)
-        windowed_chunk_shape = np.shape(windowed_chunk)
+            # Close and unlink shared memory to prevent memory leaks  
+            shm.close()
+            shm.unlink()
 
-        # Initialise orthogonal vectors (U) and residual vectors
-        U = np.full(
-            (windowed_chunk_shape[0], windowed_chunk_shape[1], 3, 3),
-            np.nan,
-            dtype=np.float32,
-        )
-        residuals = np.full(
-            (windowed_chunk_shape[0], windowed_chunk_shape[1], window_size_pixels**2),
-            np.nan,
-            dtype=np.float32,
-        )
+            # Save slope raster
+            print(f"Saving...")
+            slope_output_path = (
+                dem_path.split("/")[-1].split(".")[0]
+                + f"_slope_{window_size_pixels}x{window_size_pixels}.tif"
+            )
+            slope_output_description = f"Slope raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the gradient magnitude (in degrees) of a plane fitted through the DEM points within each window.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
+            save_raster(dem_path, slope_array, slope_output_path, slope_output_description)
 
-        # Loop through windows, getting fitted plane and residuals using singular value decomposition
-        # Frustrating this has to be a nested loop - can't figure out how to vectorise this
-        for j in tqdm(range(windowed_chunk_shape[0])):
-            for k in range(windowed_chunk_shape[1]):
+            # Save roughness raster
+            roughness_output_path = (
+                dem_path.split("/")[-1].split(".")[0]
+                + f"_roughness_{roughness_method}_{window_size_pixels}x{window_size_pixels}.tif"
+            )
+            roughness_method_name = {
+                "std": "standard deviation",
+                "mad": "median absolute deviation",
+                "range": "minimum-to-maximum difference",
+            }
+            roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters).\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
+            save_raster(
+                dem_path, roughness_array, roughness_output_path, roughness_output_description
+            )
 
-                # Skip if all window values are nan
-                if np.isnan(windowed_chunk[j, k]).all():
-                    continue
+            print(f"Done! Time taken: {time.time() - start_time:.2f} s.")
 
-                # Perform SVD
-                U[j, k], residuals[j, k] = perform_svd(windowed_chunk[j, k], resolution)
-
-        # Use normal vector of slope to solve slope equation and find dz along x and y axes, sum resulting vectors, take gradient
-        dz_x = -(1 / U[:, :, 2, 2]) * (resolution * U[:, :, 1, 2])
-        dz_y = -(1 / U[:, :, 2, 2]) * (resolution * U[:, :, 0, 2])
-        grad = (dz_x + dz_y) / np.sqrt(resolution**2 + resolution**2)
-
-        # Take absoulte gradient angle as slope
-        slope_output[i] = np.absolute(np.rad2deg(np.arctan(grad)))
-
-        # Get roughness from residuals
-        if roughness_method == "std":
-            with warnings.catch_warnings():  # catch warning for all nan slice
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                roughness_output[i] = np.nanstd(np.absolute(residuals), axis=-1)
-
-        elif roughness_method == "mad":
-            roughness_output[i] = nanmad(np.absolute(residuals), axis=-1)
-
-        elif roughness_method == "p2t":
-            with warnings.catch_warnings():  # catch warning for all nan slice
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                roughness_output[i] = np.nanmax(residuals, axis=-1) - np.nanmin(
-                    residuals, axis=-1
-                )
-
-        else:
-            sys.exit(f"{roughness_method} not a valid roughness method. Exiting...")
-
-    # Combine chunks
-    slope_output = np.asarray([np.concatenate(slope_output, axis=0)])
-    roughness_output = np.asarray([np.concatenate(roughness_output, axis=0)])
-
-    print(f"Saving...")
-
-    # Save slope raster
-    slope_output_path = dem_path.split("/")[-1].split(".")[0] + f"_slope_{window_size_pixels}x{window_size_pixels}.tif"
-    slope_output_description = f"Slope raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the gradient magnitude (in degrees) of a plane fitted through the DEM points within each window.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
-    save_raster(dem_path, slope_output, slope_output_path, slope_output_description)
-
-    # Save roughness raster
-    roughness_output_path = (
-        dem_path.split("/")[-1].split(".")[0] + f"_roughness_{roughness_method}_{window_size_pixels}x{window_size_pixels}.tif"
-    )
-    roughness_method_name = {
-        "std": "standard deviation",
-        "mad": "median absolute deviation",
-        "p2t": "peak-to-trough",
-    }
-    roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters).\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
-    save_raster(
-        dem_path, roughness_output, roughness_output_path, roughness_output_description
-    )
-
-    print("\nDone! Time taken: " + str(time.time() - start_time) + "s.")
+    # Ensure shared memory is freed and temporary directory is removed
+    except:
+        shm.close()
+        shm.unlink() 
 
 
 # ----------------------------------------------------------------------
@@ -539,12 +421,16 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
 # ----------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    # Read in command-line variables
+    
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description="Create slope and roughness maps from DEM data using SVD."
+        description=(
+            "Generate slope and roughness maps from DEM (Digital Elevation Model) data. "
+            "Slope is computed by first fitting a plane to the elevation data within a local window around each pixel using a least-squares method, "
+            "and then taking the magnitude of the resulting gradients in x and y. "
+            "Roughness is determined by measuring the variability of the orthogonal residuals relative to the fitted plane."
+        )
     )
-
     parser.add_argument("dem_path", help="The path to the DEM file.", type=str)
     parser.add_argument(
         "dem_resolution", help="The resolution of the DEM in meters.", type=int
@@ -554,20 +440,37 @@ if __name__ == "__main__":
         help="The size of the window around each pixel in meters over which slope and roughness will be calculated.",
         type=int,
     )
-
-    valid_methods = ["p2t", "std", "mad"]
+    valid_methods = ["range", "std", "mad"]
     parser.add_argument(
         "roughness_method",
-        help="The method used to calculate roughness. Options: 'p2t' (peak-to-trough), 'std' (standard deviation), 'mad' (median absolute deviation).",
+        help="The method used to calculate roughness (applied over the orthogonal residuals to the fitted plane). Options: 'range' (minimum-to-maximum difference), 'std' (standard deviation), 'mad' (median absolute deviation).",
         type=str,
         choices=valid_methods,
         nargs="?",
-        default="p2t",
+        default="range",
     )
-
+    parser.add_argument(
+        "-p",
+        "--processes",
+        help="Number of processes to use for parallel computation. Defaults to number of CPU cores. Set to 1 to process in serial.",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "-t",
+        "--tile_size",
+        help="The size of the tiles (in pixels) to split the DEM into for parallel processing. Each process attends to a single tile, so expect memory usage to grow with the number of workers. The default is 512.",
+        type=int,
+        default=256,
+    )
     args = parser.parse_args()
 
     # Run
     dem_to_slope_and_roughness(
-        args.dem_path, args.dem_resolution, args.window_size, args.roughness_method
+        args.dem_path,
+        args.dem_resolution,
+        args.window_size,
+        args.roughness_method,
+        n_processes=args.processes,
+        tile_size=args.tile_size,
     )
