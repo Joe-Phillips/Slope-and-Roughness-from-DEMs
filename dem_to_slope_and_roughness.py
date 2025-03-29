@@ -268,8 +268,7 @@ def init_worker(shared_name, shape, dtype):
     shared_dem = np.ndarray(shape, dtype=dtype, buffer=existing_shm.buf) # Interpret it as a numpy array
     atexit.register(existing_shm.close) # Ensure workers close their connection when done
 
-# from memory_profiler import profile
-# @profile
+
 def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method, n_processes=None, tile_size=256):
     """
     Calculates slope and roughness from a DEM raster.
