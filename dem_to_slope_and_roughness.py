@@ -191,16 +191,16 @@ def save_raster(dem_path, output, output_path, output_description):
 
 def process_tile(tile_coords, x, y, roughness_method, window_size_pixels, resolution):
     """
-    Processes a single tile of the DEM, computing the slope and roughness 
+    Processes a single tile of the DEM, computing the slope and roughness
     values for each pixel over a defined window.
 
     Args:
-        tile_coords (tuple): A tuple of the form (row_start, row_end, col_start, col_end), defining 
+        tile_coords (tuple): A tuple of the form (row_start, row_end, col_start, col_end), defining
                               the boundaries of the tile in the DEM.
         x (numpy.ndarray): The x-coordinates (pixel indices) corresponding to the DEM data.
         y (numpy.ndarray): The y-coordinates (pixel indices) corresponding to the DEM data.
         roughness_method (str): The method used to compute the roughness of the surface. Options include:
-                               'std' (standard deviation), 'mad' (median absolute deviation), 
+                               'std' (standard deviation), 'mad' (median absolute deviation),
                                'range' (range between the maximum and minimum residuals).
         window_size_pixels (int): The size of the moving window (in pixels) used for calculating slope and roughness.
         resolution (float): The spatial resolution of the DEM in meters per pixel.
@@ -217,35 +217,50 @@ def process_tile(tile_coords, x, y, roughness_method, window_size_pixels, resolu
         row_start, row_end, col_start, col_end = tile_coords
 
         # Initialise slope and roughness arrays at tile location
-        local_slope = np.full((row_end - row_start, col_end - col_start), np.nan, dtype=np.float32)
-        local_roughness = np.full((row_end - row_start, col_end - col_start), np.nan, dtype=np.float32)
-        
+        local_slope = np.full(
+            (row_end - row_start, col_end - col_start), np.nan, dtype=np.float32
+        )
+        local_roughness = np.full(
+            (row_end - row_start, col_end - col_start), np.nan, dtype=np.float32
+        )
+
         # Loop through pixels in tile
         for row, col in product(range(row_start, row_end), range(col_start, col_end)):
 
             # Get window around pixel
-            window_size_pixels_half = window_size_pixels//2
-            window = shared_dem[row - window_size_pixels_half : row + window_size_pixels_half + 1, col - window_size_pixels_half : col + window_size_pixels_half + 1]
+            window_size_pixels_half = window_size_pixels // 2
+            window = shared_dem[
+                row - window_size_pixels_half : row + window_size_pixels_half + 1,
+                col - window_size_pixels_half : col + window_size_pixels_half + 1,
+            ]
 
             # Skip if 50% or more values are NaNs
-            if np.isnan(window).sum() > (window_size_pixels ** 2) / 2: 
+            if np.isnan(window).sum() > (window_size_pixels**2) / 2:
                 continue
-            
+
             z = (window - np.nanmean(window)).flatten()
             a, b = fit_plane(x, y, z)
             dz_x, dz_y = a * resolution, b * resolution
-            local_slope[row - row_start, col - col_start] = np.abs(np.rad2deg(np.arctan(np.sqrt(dz_x**2 + dz_y**2))))
-            
+            local_slope[row - row_start, col - col_start] = np.abs(
+                np.rad2deg(np.arctan(np.sqrt(dz_x**2 + dz_y**2)))
+            )
+
             residuals = get_orthogonal_residuals(x, y, z, a, b)
             if roughness_method == "std":
-                local_roughness[row - row_start, col - col_start] = np.nanstd(np.abs(residuals))
+                local_roughness[row - row_start, col - col_start] = np.nanstd(
+                    np.abs(residuals)
+                )
             elif roughness_method == "mad":
-                local_roughness[row - row_start, col - col_start] = nanmad(np.abs(residuals))
+                local_roughness[row - row_start, col - col_start] = nanmad(
+                    np.abs(residuals)
+                )
             elif roughness_method == "range":
-                local_roughness[row - row_start, col - col_start] = np.nanmax(residuals) - np.nanmin(residuals)
-        
+                local_roughness[row - row_start, col - col_start] = np.nanmax(
+                    residuals
+                ) - np.nanmin(residuals)
+
         return row_start, col_start, local_slope, local_roughness
-    
+
     except Exception as e:
         logger.error(f"Error at tile {tile_coords}: {e}")
         return None, None, None, None
@@ -264,12 +279,20 @@ def init_worker(shared_name, shape, dtype):
         None
     """
     global shared_dem
-    existing_shm = SharedMemory(name=shared_name) # Reconnect to shared memory by name
-    shared_dem = np.ndarray(shape, dtype=dtype, buffer=existing_shm.buf) # Interpret it as a numpy array
-    atexit.register(existing_shm.close) # Ensure workers close their connection when done
+    existing_shm = SharedMemory(name=shared_name)  # Reconnect to shared memory by name
+    shared_dem = np.ndarray(
+        shape, dtype=dtype, buffer=existing_shm.buf
+    )  # Interpret it as a numpy array
+    atexit.register(
+        existing_shm.close
+    )  # Ensure workers close their connection when done
 
 
-def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_method, n_processes=None, tile_size=256):
+# from memory_profiler import profile
+# @profile
+def dem_to_slope_and_roughness(
+    dem_path, resolution, window_size, roughness_method, n_processes=None, tile_size=256
+):
     """
     Calculates slope and roughness from a DEM raster.
 
@@ -296,7 +319,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         print(
             f"WARNING: Window size of {window_size} m produces an even number of pixels ({window_size_pixels}), but an odd number is required."
         )
-    
+
         # Options for nearest odd window sizes
         option_1, option_2 = (window_size_pixels + 1) * resolution, (
             window_size_pixels - 1
@@ -304,7 +327,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         choice = None
 
         # If running interactively, give choice to user
-        if sys.stdin.isatty(): 
+        if sys.stdin.isatty():
 
             # Loop until valid choice is made
             while choice not in {"0", "1"}:
@@ -327,14 +350,27 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     num_rows, num_cols = dem.shape
 
     # Create a shared memory DEM to enable efficient multiprocessing without redundant copies
-    # Add NaN padding to support edge computations during window-based operations 
+    # Add NaN padding to support edge computations during window-based operations
     pad_width = window_size_pixels // 2
-    shm = SharedMemory(create=True, size=(num_rows + 2 * pad_width) * (num_cols + 2 * pad_width) * np.float32().nbytes) # Define raw block of memory
-    if n_processes == 1: # make global in case of serial - in parallel, processes are initialised with this
+    shm = SharedMemory(
+        create=True,
+        size=(num_rows + 2 * pad_width)
+        * (num_cols + 2 * pad_width)
+        * np.float32().nbytes,
+    )  # Define raw block of memory
+    if (
+        n_processes == 1
+    ):  # make global in case of serial - in parallel, processes are initialised with this
         global shared_dem
-    shared_dem = np.ndarray((num_rows + 2 * pad_width, num_cols + 2 * pad_width), dtype=np.float32, buffer=shm.buf) # Interpret it as a numpy array
-    shared_dem[:] = np.nan # Fill with NaN
-    shared_dem[pad_width:-pad_width, pad_width:-pad_width] = dem # Fill non-padded region with input DEM
+    shared_dem = np.ndarray(
+        (num_rows + 2 * pad_width, num_cols + 2 * pad_width),
+        dtype=np.float32,
+        buffer=shm.buf,
+    )  # Interpret it as a numpy array
+    shared_dem[:] = np.nan  # Fill with NaN
+    shared_dem[pad_width:-pad_width, pad_width:-pad_width] = (
+        dem  # Fill non-padded region with input DEM
+    )
     del dem
 
     # Precompute x, y coordinates for each window
@@ -347,39 +383,83 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
         with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmpdir:
 
             # Define file paths for temporary disk-backed arrays storing slope and roughness data
-            slope_path = os.path.join(tmpdir, 'slope_tmp.dat')
-            roughness_path = os.path.join(tmpdir, 'roughness_tmp.dat')
-            
+            slope_path = os.path.join(tmpdir, "slope_tmp.dat")
+            roughness_path = os.path.join(tmpdir, "roughness_tmp.dat")
+
             # Create memory-mapped arrays to store slope and roughness efficiently without loading them entirely into memory
-            slope_array = np.memmap(slope_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols))
-            roughness_array = np.memmap(roughness_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols))
-            
+            slope_array = np.memmap(
+                slope_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols)
+            )
+            roughness_array = np.memmap(
+                roughness_path, dtype=np.float32, mode="w+", shape=(num_rows, num_cols)
+            )
+
             # Divide the DEM into smaller tiles
             n_processes = mp.cpu_count() if n_processes is None else n_processes
             valid_tile_rows = range(pad_width, num_rows + pad_width, tile_size)
-            valid_tile_cols = range(pad_width, num_cols + pad_width, tile_size) 
-            tiles = [(r, min(r + tile_size, num_rows + pad_width), c, min(c + tile_size, num_cols + pad_width))
-                for r in valid_tile_rows for c in valid_tile_cols] # Defined with respect to the padded input DEM, with padded pixels ignored
+            valid_tile_cols = range(pad_width, num_cols + pad_width, tile_size)
+            tiles = [
+                (
+                    r,
+                    min(r + tile_size, num_rows + pad_width),
+                    c,
+                    min(c + tile_size, num_cols + pad_width),
+                )
+                for r in valid_tile_rows
+                for c in valid_tile_cols
+            ]  # Defined with respect to the padded input DEM, with padded pixels ignored
 
-            # Create a partial function by pre-loading arguments into process_tile 
-            process_tile_partial = partial(process_tile, x=x, y=y, roughness_method=roughness_method, window_size_pixels=window_size_pixels, resolution=resolution)
-            
+            # Create a partial function by pre-loading arguments into process_tile
+            process_tile_partial = partial(
+                process_tile,
+                x=x,
+                y=y,
+                roughness_method=roughness_method,
+                window_size_pixels=window_size_pixels,
+                resolution=resolution,
+            )
+
             # Process tles
-            if n_processes == 1: # serial
+            if n_processes == 1:  # serial
                 for tile in tqdm(tiles, desc="Computing slope and roughness..."):
-                    row_start, col_start, local_slope, local_roughness = process_tile_partial(tile)
+                    row_start, col_start, local_slope, local_roughness = (
+                        process_tile_partial(tile)
+                    )
                     row_start, col_start = row_start - pad_width, col_start - pad_width
-                    slope_array[row_start:row_start+local_slope.shape[0], col_start:col_start+local_slope.shape[1]] = local_slope
-                    roughness_array[row_start:row_start+local_roughness.shape[0], col_start:col_start+local_roughness.shape[1]] = local_roughness
-            else: # parallel
+                    slope_array[
+                        row_start : row_start + local_slope.shape[0],
+                        col_start : col_start + local_slope.shape[1],
+                    ] = local_slope
+                    roughness_array[
+                        row_start : row_start + local_roughness.shape[0],
+                        col_start : col_start + local_roughness.shape[1],
+                    ] = local_roughness
+            else:  # parallel
                 mp.set_start_method("spawn", force=True)
-                with mp.Pool(processes=n_processes, initializer=init_worker, initargs=(shm.name, shared_dem.shape, np.float32)) as pool:
-                    for row_start, col_start, local_slope, local_roughness in tqdm(pool.imap(process_tile_partial, tiles), total=len(tiles), desc="Computing slope and roughness..."):
-                        row_start, col_start = row_start - pad_width, col_start - pad_width
-                        slope_array[row_start:row_start+local_slope.shape[0], col_start:col_start+local_slope.shape[1]] = local_slope
-                        roughness_array[row_start:row_start+local_roughness.shape[0], col_start:col_start+local_roughness.shape[1]] = local_roughness
+                with mp.Pool(
+                    processes=n_processes,
+                    initializer=init_worker,
+                    initargs=(shm.name, shared_dem.shape, np.float32),
+                ) as pool:
+                    for row_start, col_start, local_slope, local_roughness in tqdm(
+                        pool.imap(process_tile_partial, tiles),
+                        total=len(tiles),
+                        desc="Computing slope and roughness...",
+                    ):
+                        row_start, col_start = (
+                            row_start - pad_width,
+                            col_start - pad_width,
+                        )
+                        slope_array[
+                            row_start : row_start + local_slope.shape[0],
+                            col_start : col_start + local_slope.shape[1],
+                        ] = local_slope
+                        roughness_array[
+                            row_start : row_start + local_roughness.shape[0],
+                            col_start : col_start + local_roughness.shape[1],
+                        ] = local_roughness
 
-            # Close and unlink shared memory to prevent memory leaks  
+            # Close and unlink shared memory to prevent memory leaks
             shm.close()
             shm.unlink()
 
@@ -390,7 +470,9 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
                 + f"_slope_{window_size_pixels}x{window_size_pixels}.tif"
             )
             slope_output_description = f"Slope raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the gradient magnitude (in degrees) of a plane fitted through the DEM points within each window.\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
-            save_raster(dem_path, slope_array, slope_output_path, slope_output_description)
+            save_raster(
+                dem_path, slope_array, slope_output_path, slope_output_description
+            )
 
             # Save roughness raster
             roughness_output_path = (
@@ -404,7 +486,10 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
             }
             roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters).\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
             save_raster(
-                dem_path, roughness_array, roughness_output_path, roughness_output_description
+                dem_path,
+                roughness_array,
+                roughness_output_path,
+                roughness_output_description,
             )
 
             print(f"Done! Time taken: {time.time() - start_time:.2f} s.")
@@ -412,7 +497,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
     # Ensure shared memory is freed and temporary directory is removed
     except:
         shm.close()
-        shm.unlink() 
+        shm.unlink()
 
 
 # ----------------------------------------------------------------------
@@ -420,7 +505,7 @@ def dem_to_slope_and_roughness(dem_path, resolution, window_size, roughness_meth
 # ----------------------------------------------------------------------
 
 if __name__ == "__main__":
-    
+
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description=(
