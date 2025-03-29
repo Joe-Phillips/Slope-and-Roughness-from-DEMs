@@ -18,11 +18,9 @@ Despite these limitations, these approaches are widely used in GIS software such
 
 This project improves upon traditional methods by calculating slope through Least Squares Regression, fitting a plane to a given DEM point and its surrounding pixels. The slope is then derived from the plane’s gradient in the x and y directions and expressed in degrees. Roughness is computed independently of slope by analysing the dispersion of _orthogonal_ residuals from the fitted plane. By measuring roughness in a direction perpendicular to the local slope trend, this approach ensures that roughness values truly reflect surface variability rather than being biased by overall terrain inclination. The roughness can be quantified using one of three methods:
 
-    Range (range): Maximum minus minimum residuals.
-
-    Standard Deviation (std): The standard deviation of residuals.
-
-    Median Absolute Deviation (mad): The median absolute deviation of residuals.
+- **Range** (range): Maximum minus minimum residuals.
+- **Standard Deviation** (std): The standard deviation of residuals.
+- **Median Absolute Deviation** (mad): The median absolute deviation of residuals.
 
 Unlike traditional approaches, this method also allows for a flexible, sliding-window application beyond a fixed 3×3 neighborhood. Larger window sizes (e.g., 9×9 pixels) can be used to incorporate more data points, producing smoother and more reliable slope and roughness estimates.
 
