@@ -56,8 +56,6 @@ python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 std --n_proc
 ```
 
 ---
-<br>
-
 ## :camera: Images
 **Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200 m resolution and a window size of 1000 m (5x5)**. *(Plot created separately).*
 
