@@ -1,4 +1,4 @@
-# Slope-and-Roughness-from-DEMs
+# Slope and Roughness from DEMs
 
 This project generates **slope** and **roughness** maps from **Digital Elevation Model** (DEM) data by fitting a plane to local elevation windows. **Slope** is derived from the plane’s gradient, while **roughness** is based on the dispersion of the **orthogonal residuals**.
 
