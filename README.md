@@ -55,6 +55,7 @@ To generate the slope and roughness maps, simply run **dem_to_slope_and_roughnes
 python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 std --n_processes 4 --tile_size 256
 ```
 
+---
 <br>
 
 ## :camera: Images
