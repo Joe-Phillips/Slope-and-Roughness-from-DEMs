@@ -571,11 +571,6 @@ def dem_to_slope_and_roughness(
         cleanup(shm, tmpdir)
 
         print(f"Done! Time taken: {time.time() - start_time:.2f} s.")
-        np.savetxt(
-            f"{method}_{window_size_pixels}x{window_size_pixels}_time_taken.txt",
-            np.array([f"Done! Time taken: {time.time() - start_time:.2f} s."]),
-            fmt="%s",
-        )
 
     # Cleanup shared memory and temporary files on error
     except:
