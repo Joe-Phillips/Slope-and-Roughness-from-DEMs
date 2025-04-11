@@ -2,9 +2,11 @@
 
 This project generates **slope** and **roughness** maps from **Digital Elevation Model** (DEM) data by fitting a plane to local elevation windows. **Slope** is derived from the plane’s gradient, while **roughness** is based on the dispersion of the **orthogonal residuals**.
 
-Made by Joe Phillips.  
-[GitHub](https://github.com/Joe-Phillips) • [LinkedIn](https://www.linkedin.com/in/joe-b-phillips/) • ✉️ j.phillips5@lancaster.ac.uk
+Made by Joe Phillips.
 
+[![Repo](https://badgen.net/badge/icon/GitHub/green?icon=github&label)](https://github.com/Joe-Phillips) 
+[![Repo](https://badgen.net/badge/icon/linkedin/blue?icon=linkedin&label)](https://www.linkedin.com/in/joe-b-phillips/)
+&nbsp;✉️ j.phillips5@lancaster.ac.uk
 ---
 
 ## 🧰 How it Works
