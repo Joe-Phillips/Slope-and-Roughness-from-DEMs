@@ -556,7 +556,7 @@ def dem_to_slope_and_roughness(
             "std": "standard deviation",
             "mad": "median absolute deviation",
             "range": "minimum-to-maximum difference",
-            "non_orthogonal_residual_range": "Non-orthogonal Residual Range" # debug/testing 
+            "non_orthogonal_residual_range": "non-orthogonal residual range" # debug/testing 
         }
         roughness_output_description = f"Roughness raster derived from a DEM with a resolution of {resolution} meters, using a window size of {window_size} meters. Values represent the orthogonal variation ({roughness_method_name[roughness_method]}) of residuals from a plane fitted through the DEM points within each window (in meters).\nhttps://github.com/Joe-Phillips/Slope-and-Roughness-from-DEMs"
         save_raster(
