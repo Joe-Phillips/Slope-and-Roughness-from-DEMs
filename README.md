@@ -22,7 +22,7 @@ This project improves upon traditional methods by calculating slope through **pl
 
 - **Least Squares (LS)**: Fast and effective for most terrain.
 - **Singular Value Decomposition (SVD)**: Slower, but more robust over highly variable or rugged terrain.  
-  Unlike LS, which minimizes vertical residuals, SVD minimises **orthogonal residuals**, making it less sensitive to terrain anisotropy and better at preserving slope and roughness integrity in complex landscapes.
+  Unlike LS, which minimises vertical residuals, SVD minimises **orthogonal residuals**, making it less sensitive to terrain anisotropy and better at preserving slope and roughness integrity in complex landscapes.
 
 Once a plane is fitted, slope is derived from its gradient in the x and y directions and expressed in degrees. Roughness is computed independently of slope by analysing the dispersion of **orthogonal residuals** from the fitted plane. By measuring roughness in a direction perpendicular to the local slope trend, this approach ensures that roughness values truly reflect surface variability rather than being biased by overall terrain inclination.
 
