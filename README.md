@@ -1,68 +1,72 @@
 # Slope and Roughness from DEMs
 
-This project generates **slope** and **roughness** maps from **Digital Elevation Model** (DEM) data by fitting a plane to local elevation windows. **Slope** is derived from the plane’s gradient, while **roughness** is based on the dispersion of the **orthogonal residuals**.
-
-Made by Joe Phillips.
-
-[![Repo](https://badgen.net/badge/icon/GitHub/green?icon=github&label)](https://github.com/Joe-Phillips) 
-[![Repo](https://badgen.net/badge/icon/linkedin/blue?icon=linkedin&label)](https://www.linkedin.com/in/joe-b-phillips/)
-&nbsp;✉️ j.phillips5@lancaster.ac.uk
+Generates **slope**, **roughness**, and (optionally) **aspect** rasters from Digital Elevation Model (DEM) data by fitting a plane to local elevation windows. **Slope** is derived from the plane's gradient, **roughness** from the dispersion of the **orthogonal residuals**, and **aspect** from the direction of steepest descent.
 
 ---
 
-## 🧰 How it Works
-
-Commonly used slope algorithms, such as Horn's method, estimate slope based on local elevation differences across a small, fixed window (typically 3×3 pixels). By approximating partial derivatives using immediate neighbors, these methods are highly sensitive to noise and elevation variability, often leading to exaggerated slope values in areas with rough or noisy terrain.
-
-Similarly, standard roughness metrics like the Terrain Ruggedness Index (TRI) and Topographic Position Index (TPI) fail to account for underlying slope when assessing elevation variance. These methods calculate elevation differences between a central pixel and its neighbors, which means that a perfectly smooth but tilted surface produces non-zero roughness values. Consequently, the roughness values produced by these methods are affected by slope in a way that makes it difficult to isolate their individual contributions to topographic variation.
-
-Despite these limitations, these approaches are widely used in GIS software such as GRASS, ArcGIS, and GDAL (the backend for QGIS).
-
-This project improves upon traditional methods by calculating slope through **plane fitting** over a local neighborhood of each DEM pixel. Two methods are available:
-
-- **Least Squares (LS)**: Fast and effective for most terrain.
-- **Singular Value Decomposition (SVD)**: Slower, but more robust over highly variable or rugged terrain.  
-  Unlike LS, which minimises vertical residuals, SVD minimises **orthogonal residuals**, making it less sensitive to terrain anisotropy and better at preserving slope and roughness integrity in complex landscapes.
-
-Once a plane is fitted, slope is derived from its gradient in the x and y directions and expressed in degrees. Roughness is computed independently of slope by analysing the dispersion of **orthogonal residuals** from the fitted plane. By measuring roughness in a direction perpendicular to the local slope trend, this approach ensures that roughness values truly reflect surface variability rather than being biased by overall terrain inclination.
-
-The roughness can be quantified using one of three methods:
-
-- **Range** (`range`): *Maximum minus minimum residuals*
-- **Standard Deviation** (`std`): *The standard deviation of residuals*
-- **Median Absolute Deviation** (`mad`): *The median absolute deviation of residuals*
-
-Unlike traditional approaches, this method also allows for a flexible, sliding-window application beyond a fixed 3×3 neighborhood. Larger window sizes (e.g., 9×9 pixels) can be used to incorporate more data points, producing smoother and more reliable slope and roughness estimates.
+Made by **Joe Phillips**  
+[![GitHub](https://badgen.net/badge/icon/GitHub/green?icon=github&label)](https://github.com/Joe-Phillips)
+[![LinkedIn](https://badgen.net/badge/icon/linkedin/blue?icon=linkedin&label)](https://www.linkedin.com/in/joe-b-phillips/)
+&nbsp; ✉️ j.phillips5@lancaster.ac.uk
 
 ---
-## 🛠️ Usage Guide
 
-First, make sure you have installed the required packages. This can be done via:
-```sh
+## Overview
+
+Commonly used slope algorithms such as Horn's method estimate slope from local elevation differences across a fixed 3×3 window. By approximating partial derivatives using immediate neighbours, these methods are highly sensitive to noise and can produce exaggerated slope values over rough terrain.
+
+Similarly, standard roughness metrics like TRI and TPI calculate elevation differences between a central pixel and its neighbours without accounting for underlying slope - meaning a smooth but tilted surface will produce non-zero roughness values, making it difficult to isolate roughness from slope in topographic variation.
+
+This project improves on these approaches by fitting a plane over a configurable local window around each pixel. Two fitting methods are available:
+
+- **Least Squares (LS)** - fast and effective for most terrain.
+- **Singular Value Decomposition (SVD)** - slower but more robust over rugged terrain. Unlike LS, which minimises vertical residuals, SVD minimises **orthogonal residuals**, making it less sensitive to terrain anisotropy.
+
+Slope is derived from the plane's x and y gradients (in degrees). Roughness is computed from the **orthogonal residuals** to the fitted plane, ensuring it reflects true surface variability rather than being inflated by overall terrain inclination. Three roughness statistics are supported:
+
+- **`range`** - maximum minus minimum residuals
+- **`std`** - standard deviation of residuals  
+- **`mad`** - median absolute deviation of residuals
+
+Aspect (direction of steepest descent, degrees clockwise from North) can optionally be computed from the same plane fit.
+
+## Usage
+
+Install the required packages:
+```bash
 pip install -r requirements.txt
 ```
-To generate the slope and roughness maps, simply run **dem_to_slope_and_roughness.py** from the command line with the following arguments:
 
-- **DEM_PATH** (string): *The path to the DEM file.*
-- **DEM_RESOLUTION** (string): *The resolution of the DEM in meters.*
-- **WINDOW_SIZE** (int): *The size of the window around each pixel in meters over which slope and roughness will be calculated.*
-- **ROUGHNESS_METHOD** (int): *The method used to calculate roughness. Options: 'range' (minimum-to-maximum difference), 'std' (standard deviation), 'mad' (median absolute deviation). Defaults to 'range'.*
-- --**METHOD** (optional, string) *The fitting method used to compute the local slope plane. Options: 'ls' (least squares), 'svd' (singular value decomposition). Defaults to 'svd'.*
-- --**N_PROCESSES** (optional, int): *The number of processes to use for computation. Defaults to using all available CPU cores.*
-- --**TILE_SIZE** (optional, int): *The size of tiles in pixels for processing large DEMs efficiently. Defaults to 256.*
-
----
-### Example:
-
-```sh
-python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 std --method svd --n_processes 4 --tile_size 256
+Then run from the command line:
+```bash
+python dem_to_slope_and_roughness.py <dem_path> <dem_resolution> <window_size> [roughness_method] [options]
 ```
 
----
-## :camera: Images
-**Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200 m resolution and a window size of 1000 m (5x5)**. *(Plot created separately).*
+### Positional Arguments
 
-<br>
+| Argument | Type | Description |
+|---|---|---|
+| `dem_path` | string | Path to the input DEM file. |
+| `dem_resolution` | int | DEM pixel size in metres. |
+| `window_size` | int | Analysis window size in metres. |
+| `roughness_method` | string | Roughness statistic: `range` (default), `std`, or `mad`. |
 
-![alt text](https://github.com/Joe-Phillips/DEM-to-Slope-and-Roughness/blob/main/example_output.png?raw=true)
+### Optional Arguments
 
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `-a`, `--aspect` | flag | `false` | Also compute and save an aspect raster. |
+| `-m`, `--method` | string | `svd` | Plane-fitting method: `svd` (minimises orthogonal residuals) or `ls` (least squares, faster). |
+| `-p`, `--processes` | int | cpu_count | Number of parallel workers. Set to `1` to run in serial. |
+| `-t`, `--tile_size` | int | `256` | Tile side length in pixels for parallel dispatch. |
+
+### Example
+```bash
+python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 std --method svd --processes 4 --aspect
+```
+
+## Preview
+
+**Example output over Antarctica using REMA** (https://www.pgc.umn.edu/data/rema/) **at 200 m resolution and a window size of 1000 m (5×5)**. *(Plot created separately.)*
+
+![Example output](https://github.com/Joe-Phillips/DEM-to-Slope-and-Roughness/blob/main/example_output.png?raw=true)
