@@ -63,7 +63,7 @@ python dem_to_slope_and_roughness.py <dem_path> <dem_resolution> <window_size> [
 
 ### Example
 ```bash
-python dem_to_slope_and_roughness.py example_folder/DEM.tif 200 900 range --method svd --processes 4 --aspect
+python dem_to_slope_and_roughness.py example_folder/DEM.tif 100 900 range --method svd --processes 4 --aspect
 ```
 
 ## Preview
